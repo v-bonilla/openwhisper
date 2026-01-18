@@ -1,0 +1,13 @@
+# Optional configuration for OpenWhisper.
+
+# whisper_cli_path = "/path/to/whisper-cli"
+# whisper_model_path = "/path/to/large-v3.bin"
+# llama_cli_path = "/path/to/llama-cli"
+# llama_model_path = "/path/to/gpt-oss-20b.bin"
+# default_mode = "voice-to-text"
+# default_language = "en"
+# clipboard_enabled = true
+# history_enabled = true
+# history_dir = "./data/history"
+# audio_device = "default"
+# translation_target = "en"
