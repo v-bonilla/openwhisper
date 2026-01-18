@@ -14,19 +14,25 @@ def run_llama(prompt: str, model_path: str, cli_path: str = "llama-cli") -> str:
         cli_path,
         "-m",
         model_path,
+        "-p",
+        prompt,
         "--temp",
         "0.2",
         "--top-p",
         "0.9",
+        "-no-cnv",
+        "--simple-io",
     ]
     env = None
     cli_dir = Path(cli_path).parent if Path(cli_path).is_absolute() else None
     if cli_dir and cli_dir != Path("."):
         env = os.environ.copy()
         current = env.get("LD_LIBRARY_PATH", "")
-        env["LD_LIBRARY_PATH"] = f"{cli_dir}{os.pathsep}{current}" if current else str(cli_dir)
+        env["LD_LIBRARY_PATH"] = (
+            f"{cli_dir}{os.pathsep}{current}" if current else str(cli_dir)
+        )
     try:
-        result = subprocess.run(cmd, input=prompt, text=True, capture_output=True, env=env)
+        result = subprocess.run(cmd, text=True, capture_output=True, env=env)
     except FileNotFoundError as exc:
         raise LlamaError("llama-cli is not available on PATH.") from exc
     if result.returncode != 0:
