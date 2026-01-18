@@ -36,8 +36,6 @@ def _pw_record_command(path: Path, device: str | None) -> list[str]:
         "1",
         "--format",
         "s16",
-        "--file-format",
-        "wav",
         str(path),
     ]
     if device:
