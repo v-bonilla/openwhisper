@@ -8,5 +8,12 @@ requires-python = ">=3.13"
 [project.scripts]
 openwhisper = "openwhisper.cli:main"
 
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["openwhisper*"]
+
 [tool.uv]
 package = true

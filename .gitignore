@@ -1,1 +1,3 @@
 config/openwhisper.toml
+*.egg-info
+__pycache__
