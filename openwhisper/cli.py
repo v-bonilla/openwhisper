@@ -19,7 +19,7 @@ from .constants import (
 )
 from .history import write_history
 from .llama import LlamaError, run_llama
-from .output import OutputError, copy_to_clipboard, write_output
+from .output import OutputError, copy_to_clipboard, notify_clipboard_copied, write_output
 from .state import StateError, clear_state, load_state, save_state
 from .whisper import WhisperError, run_whisper
 
@@ -207,6 +207,8 @@ def _stop_command(config: dict) -> int:
         if state.get("clipboard_enabled"):
             try:
                 copy_to_clipboard(text)
+                if config.get("clipboard_notify_enabled", True):
+                    notify_clipboard_copied()
             except OutputError as exc:
                 print(f"Clipboard copy failed: {exc}", file=sys.stderr)
 

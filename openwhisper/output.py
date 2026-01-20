@@ -13,12 +13,37 @@ def copy_to_clipboard(text: str) -> None:
     if which("wl-copy"):
         proc = subprocess.run(["wl-copy"], input=text, text=True)
     elif which("xclip"):
-        proc = subprocess.run(["xclip", "-selection", "clipboard"], input=text, text=True)
+        proc = subprocess.run(
+            ["xclip", "-selection", "clipboard"], input=text, text=True
+        )
     else:
         raise OutputError("Missing clipboard tool: wl-copy or xclip.")
 
     if proc.returncode != 0:
         raise OutputError("Clipboard command failed.")
+
+
+def notify_clipboard_copied() -> None:
+    if which("dbus-send") is None:
+        return
+
+    args = [
+        "dbus-send",
+        "--session",
+        "--dest=org.freedesktop.Notifications",
+        "--type=method_call",
+        "/org/freedesktop/Notifications",
+        "org.freedesktop.Notifications.Notify",
+        'string:"OpenWhisper"',
+        "uint32:0",
+        'string:""',
+        'string:"OpenWhisper"',
+        'string:"Copied to clipboard."',
+        "array:string:",
+        "dict:string:variant:",
+        "int32:5000",
+    ]
+    subprocess.run(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 def write_output(text: str, output_path: Path | None) -> None:

@@ -26,6 +26,7 @@ def load_config() -> dict:
         "default_mode": MODE_VOICE,
         "default_language": None,
         "clipboard_enabled": True,
+        "clipboard_notify_enabled": True,
         "history_enabled": True,
         "history_dir": str(REPO_ROOT / "data" / "history"),
         "audio_device": None,

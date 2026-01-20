@@ -135,6 +135,7 @@ Suggested keys:
 - `default_mode`
 - `default_language`
 - `clipboard_enabled`
+- `clipboard_notify_enabled`
 - `history_enabled`
 - `history_dir` (default: `./data/history`)
 - `audio_device`
