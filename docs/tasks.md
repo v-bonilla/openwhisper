@@ -45,8 +45,7 @@
 
 ## Phase 4: Output and History
 12) [x] Clipboard output:
-   - `wl-copy` for Wayland
-   - `xclip` fallback for X11
+   - DBus via xdg-desktop-portal (`dbus-send`)
 13) [x] Stdout output and optional `--output` file
 14) [x] History storage:
    - Raw transcript
@@ -65,7 +64,7 @@
    - CLI examples
    - Desktop hotkey setup instructions
 18) [x] Document dependencies:
-   - `whisper-cli`, `llama-cli`, `pw-record`, `parec`, `wl-copy`/`xclip`
+   - `whisper-cli`, `llama-cli`, `pw-record`, `parec`, `dbus-send`
 19) [x] Document dev requirements:
    - Python 3.13
    - `uv` for environment and workflow

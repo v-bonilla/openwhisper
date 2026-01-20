@@ -1,7 +1,7 @@
 # OpenWhisper MVP Spec (Linux CLI)
 
 ## Purpose
-OpenWhisper is a Linux-only CLI dictation tool inspired by Superwhisper. It turns speech into text and optionally formats it for specific use cases (email, note). The MVP is a simple Python CLI that shells out to `whisper-cli` (whisper.cpp) and `llama-cli` (llama.cpp). It is launched via desktop hotkeys and outputs text to clipboard and stdout.
+OpenWhisper is a Linux-only CLI dictation tool inspired by Superwhisper. It turns speech into text and optionally formats it for specific use cases (email, note). The MVP is a simple Python CLI that shells out to `whisper-cli` (whisper.cpp) and `llama-cli` (llama.cpp). It is launched via desktop hotkeys and outputs text to clipboard (via DBus) and stdout.
 
 ## Scope and Constraints
 - Name: `openwhisper`
@@ -23,7 +23,7 @@ OpenWhisper is a Linux-only CLI dictation tool inspired by Superwhisper. It turn
 ## User Experience Summary
 - User binds hotkeys to CLI commands (start/stop/cancel) for each mode.
 - The CLI records mic audio, transcribes it, optionally translates, then formats output by mode.
-- Output is printed to stdout and copied to the clipboard.
+- Output is printed to stdout and copied to the clipboard (via DBus).
 - Optional history files stored locally.
 
 ## CLI Overview
@@ -53,7 +53,7 @@ Single Python entrypoint: `openwhisper`.
 2) Transcribe audio with `whisper-cli` using the `large-v3` model.
 3) If `--translate` is provided, translate text via `llama-cli`.
 4) If mode is `email` or `note`, apply LLM formatting prompt via `llama-cli`.
-5) Output final text to stdout and clipboard, optionally write history.
+5) Output final text to stdout and clipboard (via DBus), optionally write history.
 
 ## Supported Languages and Validation
 - Only en/es/de/fr are supported.
@@ -145,7 +145,7 @@ Config is optional; CLI flags override config.
 
 ## Output and History
 - Always print final output to stdout.
-- Copy output to clipboard via `wl-copy` (Wayland) or `xclip` (X11).
+- Copy output to clipboard via DBus (xdg-desktop-portal).
 - If history enabled, save:
   - raw transcript
   - final output
@@ -176,5 +176,5 @@ Config is optional; CLI flags override config.
 - Transcription works from CLI with `whisper-cli` using `large-v3`.
 - Email and Note modes format text via `llama-cli` using `gpt-oss-20b`.
 - Translation between en/es/de/fr works.
-- Output is sent to stdout and clipboard.
+- Output is sent to stdout and clipboard (via DBus).
 - Hotkeys can be configured through the desktop environment.

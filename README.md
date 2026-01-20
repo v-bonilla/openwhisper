@@ -12,7 +12,7 @@ OpenWhisper is a Linux-only CLI dictation tool inspired by Superwhisper. It reco
 - `whisper-cli` (whisper.cpp)
 - `llama-cli` (llama.cpp)
 - Audio capture: `pw-record` (PipeWire) or `parec` + `sox`/`ffmpeg`
-- Clipboard: `wl-copy` (Wayland) or `xclip` (X11)
+- Clipboard: DBus via xdg-desktop-portal (`dbus-send`)
 
 Run dependency checks:
 ```bash

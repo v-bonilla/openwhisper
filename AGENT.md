@@ -23,7 +23,7 @@ OpenWhisper is a Linux-only CLI dictation tool. It records audio, transcribes vi
 - `whisper-cli` (whisper.cpp)
 - `llama-cli` (llama.cpp)
 - Audio: `pw-record` or `parec` + `sox`/`ffmpeg`
-- Clipboard: `wl-copy` or `xclip`
+- Clipboard: DBus via xdg-desktop-portal (`dbus-send`)
 
 ## Dev
 - Python 3.13

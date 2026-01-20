@@ -10,6 +10,28 @@ class OutputError(RuntimeError):
 
 
 def copy_to_clipboard(text: str) -> None:
+    if which("dbus-send") is None:
+        raise OutputError("Missing dbus-send.")
+
+    args = [
+        "dbus-send",
+        "--type=method_call",
+        "--dest=org.kde.klipper",
+        "/klipper",
+        "org.kde.klipper.klipper.setClipboardContents",
+        f'string:"{text}"',
+    ]
+    proc = subprocess.run(
+        args,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+    if proc.returncode != 0:
+        raise OutputError("Clipboard command failed.")
+
+
+def copy_to_clipboard_wl(text: str) -> None:
     if which("wl-copy"):
         proc = subprocess.run(["wl-copy"], input=text, text=True)
     elif which("xclip"):

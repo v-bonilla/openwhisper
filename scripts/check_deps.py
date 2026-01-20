@@ -7,7 +7,7 @@ REQUIRED = ["whisper-cli", "llama-cli"]
 AUDIO_PRIMARY = ["pw-record"]
 AUDIO_FALLBACK = ["parec"]
 AUDIO_CONVERTERS = ["sox", "ffmpeg"]
-CLIPBOARD = ["wl-copy", "xclip"]
+CLIPBOARD = ["dbus-send"]
 
 
 def _missing(cmds: list[str]) -> list[str]:
@@ -23,8 +23,8 @@ def main() -> int:
     if not _missing(AUDIO_FALLBACK) and _missing(AUDIO_CONVERTERS):
         missing.append("sox or ffmpeg (required for parec)")
 
-    if len(_missing(CLIPBOARD)) == len(CLIPBOARD):
-        missing.append("wl-copy or xclip")
+    if _missing(CLIPBOARD):
+        missing.append("dbus-send")
 
     if missing:
         print("Missing dependencies:")
