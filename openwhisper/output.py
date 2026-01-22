@@ -19,7 +19,7 @@ def copy_to_clipboard(text: str) -> None:
         "--dest=org.kde.klipper",
         "/klipper",
         "org.kde.klipper.klipper.setClipboardContents",
-        f'string:"{text}"',
+        f"string:{text}",
     ]
     proc = subprocess.run(
         args,
