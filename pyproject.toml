@@ -17,3 +17,8 @@ include = ["openwhisper*"]
 
 [tool.uv]
 package = true
+
+[dependency-groups]
+dev = [
+    "ruff>=0.15.0",
+]
