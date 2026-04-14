@@ -4,6 +4,10 @@ version = "0.1.0"
 description = "OpenWhisper MVP CLI"
 readme = "README.md"
 requires-python = ">=3.13"
+license = { file = "LICENSE" }
+authors = [
+    { name = "v-bonilla", email = "v-bonilla@users.noreply.github.com" },
+]
 
 [project.scripts]
 openwhisper = "openwhisper.cli:main"
