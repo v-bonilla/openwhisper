@@ -1,7 +1,7 @@
 # OpenWhisper MVP Spec (Linux CLI)
 
 ## Purpose
-OpenWhisper is a Linux-only CLI dictation tool inspired by Superwhisper. It turns speech into text and optionally formats it for specific use cases (email, note). The MVP is a simple Python CLI that shells out to `whisper-cli` (whisper.cpp) and `llama-cli` (llama.cpp). It is launched via desktop hotkeys and outputs text to clipboard (via DBus) and stdout.
+OpenWhisper is a Linux-only CLI dictation tool. It turns speech into text and optionally formats it for specific use cases (email, note). The MVP is a simple Python CLI that shells out to `whisper-cli` (whisper.cpp) and `llama-cli` (llama.cpp). It is launched via desktop hotkeys and outputs text to clipboard (via DBus) and stdout.
 
 ## Scope and Constraints
 - Name: `openwhisper`

@@ -1,6 +1,6 @@
 # OpenWhisper (Linux CLI)
 
-OpenWhisper is a Linux-only CLI dictation tool inspired by Superwhisper. It records audio, transcribes via `whisper-cli`, and optionally formats output via `llama-cli`. Output is printed to stdout and copied to the clipboard.
+OpenWhisper is a Linux-only CLI dictation tool. It records audio, transcribes via `whisper-cli`, and optionally formats output via `llama-cli`. Output is printed to stdout and copied to the clipboard.
 
 ## MVP Goals
 - Voice-to-text, email, and note modes
