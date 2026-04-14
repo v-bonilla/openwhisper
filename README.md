@@ -1,4 +1,4 @@
-# OpenWhisper MVP (Linux CLI)
+# OpenWhisper (Linux CLI)
 
 OpenWhisper is a Linux-only CLI dictation tool inspired by Superwhisper. It records audio, transcribes via `whisper-cli`, and optionally formats output via `llama-cli`. Output is printed to stdout and copied to the clipboard.
 
@@ -8,24 +8,27 @@ OpenWhisper is a Linux-only CLI dictation tool inspired by Superwhisper. It reco
 - Local-only inference (no network calls)
 - CLI driven hotkey workflows
 
-## Dependencies
-- `whisper-cli` (whisper.cpp)
-- `llama-cli` (llama.cpp)
-- Audio capture: `pw-record` (PipeWire) or `parec` + `sox`/`ffmpeg`
-- Clipboard: DBus via xdg-desktop-portal (`dbus-send`)
+## Install
 
-Run dependency checks:
-```bash
-python scripts/check_deps.py
-```
+**Requirements:** Linux, Python 3.13, [uv](https://docs.astral.sh/uv/).
 
-## Development (Python 3.13 + uv)
-```bash
-uv venv
-uv pip install -e .
-```
+1. Install system dependencies:
+   - `whisper-cli` ([whisper.cpp](https://github.com/ggerganov/whisper.cpp))
+   - `llama-cli` ([llama.cpp](https://github.com/ggerganov/llama.cpp))
+   - Audio: `pw-record` (PipeWire) or `parec` + `sox`/`ffmpeg`
+   - Clipboard: `dbus-send` (via xdg-desktop-portal)
 
-Run the CLI:
+2. Install the package:
+   ```bash
+   uv sync
+   ```
+
+3. Verify:
+   ```bash
+   python scripts/check_deps.py
+   ```
+
+## Run
 ```bash
 uv run openwhisper start --mode voice-to-text
 uv run openwhisper stop
