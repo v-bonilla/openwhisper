@@ -18,6 +18,10 @@ MODE_EMAIL = "email"
 MODE_NOTE = "note"
 SUPPORTED_MODES = {MODE_VOICE, MODE_EMAIL, MODE_NOTE}
 
+EXERCISE_DRILL = "drill"
+EXERCISE_SHADOW = "shadow"
+SUPPORTED_EXERCISES = {EXERCISE_DRILL, EXERCISE_SHADOW}
+
 PROMPT_EMAIL = (
     "You are formatting a dictation into a clear email. Keep the speaker's tone.\n"
     "Requirements:\n"

@@ -10,6 +10,8 @@ from .config import REPO_ROOT, load_config, resolve_history_dir
 from .constants import (
     BACKEND_PARAKEET,
     BACKEND_WHISPER,
+    EXERCISE_DRILL,
+    EXERCISE_SHADOW,
     MODE_EMAIL,
     MODE_NOTE,
     MODE_VOICE,
@@ -43,6 +45,22 @@ def _parse_args() -> argparse.Namespace:
 
     subparsers.add_parser("stop")
     subparsers.add_parser("cancel")
+
+    drill_parser = subparsers.add_parser("drill")
+    drill_parser.add_argument("--count", type=int, default=10)
+    drill_parser.add_argument("--category")
+    drill_parser.add_argument("--backend", choices=sorted(SUPPORTED_BACKENDS))
+    drill_parser.add_argument("--audio-file", type=Path)
+    drill_parser.add_argument("--target")
+
+    shadow_parser = subparsers.add_parser("shadow")
+    shadow_parser.add_argument("paragraph_id", nargs="?")
+    shadow_parser.add_argument("--file", type=Path)
+    shadow_parser.add_argument("--backend", choices=sorted(SUPPORTED_BACKENDS))
+    shadow_parser.add_argument("--audio-file", type=Path)
+
+    pairs_list_parser = subparsers.add_parser("pairs-list")
+    pairs_list_parser.add_argument("--category")
 
     return parser.parse_args()
 
@@ -82,6 +100,22 @@ def _validate_parakeet_model_dir(value: str | None) -> None:
         raise ValueError(
             f"parakeet_model_dir missing files: {', '.join(missing)} in {value}"
         )
+
+
+def validate_backend_requirements(backend: str, config: dict) -> None:
+    """Validate CLI paths / model files for the given backend.
+
+    Raises ValueError with the same messages previously asserted inline in
+    _stop_command. Shared by dictation and pronunciation transcription.
+    """
+    if backend == BACKEND_PARAKEET:
+        _validate_parakeet_model_dir(config.get("parakeet_model_dir"))
+        return
+    if backend == BACKEND_WHISPER:
+        _validate_binary_path(config.get("whisper_cli_path"), "whisper_cli_path")
+        _validate_model_path(config.get("whisper_model_path"), "whisper_model_path")
+        return
+    raise ValueError(f"Unsupported backend: {backend}")
 
 
 def _validate_language_pair(language: str | None, translate: str | None) -> None:
@@ -183,12 +217,12 @@ def _stop_command(config: dict) -> int:
 
     backend = state.get("backend", BACKEND_WHISPER)
     try:
+        try:
+            validate_backend_requirements(backend, config)
+        except ValueError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
         if backend == BACKEND_PARAKEET:
-            try:
-                _validate_parakeet_model_dir(config.get("parakeet_model_dir"))
-            except ValueError as exc:
-                print(str(exc), file=sys.stderr)
-                return 1
             try:
                 transcript, detected = run_parakeet(
                     audio_path,
@@ -200,12 +234,6 @@ def _stop_command(config: dict) -> int:
                 print(str(exc), file=sys.stderr)
                 return 1
         else:
-            try:
-                _validate_binary_path(config.get("whisper_cli_path"), "whisper_cli_path")
-                _validate_model_path(config.get("whisper_model_path"), "whisper_model_path")
-            except ValueError as exc:
-                print(str(exc), file=sys.stderr)
-                return 1
             try:
                 transcript, detected = run_whisper(
                     audio_path,
@@ -274,6 +302,288 @@ def _stop_command(config: dict) -> int:
     return 0
 
 
+def _resolve_backend(args_backend: str | None, config: dict) -> tuple[str | None, str | None]:
+    backend = args_backend or config.get("transcription_backend", BACKEND_WHISPER)
+    if backend not in SUPPORTED_BACKENDS:
+        return None, f"Unsupported backend: {backend}"
+    return backend, None
+
+
+def _drill_command(args: argparse.Namespace, config: dict) -> int:
+    from .pronunciation.drill import (
+        AttemptResult,
+        classify,
+        format_attempt,
+        format_summary,
+        sample_targets,
+    )
+    from .pronunciation.pairs import (
+        PairsError,
+        filter_pairs,
+        find_pair_by_word,
+        load_pairs,
+    )
+    from .pronunciation.record import RecordError, record_until_enter
+    from .pronunciation.transcribe import TranscribeError, transcribe_audio
+
+    backend, err = _resolve_backend(args.backend, config)
+    if err:
+        print(err, file=sys.stderr)
+        return 1
+
+    pairs_path = Path(config.get("pronunciation_pairs_path") or "")
+    try:
+        all_pairs = load_pairs(pairs_path)
+    except PairsError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
+    filtered = filter_pairs(all_pairs, args.category)
+    if not filtered:
+        msg = (
+            f"No pairs in category: {args.category}"
+            if args.category
+            else "No pairs loaded."
+        )
+        print(msg, file=sys.stderr)
+        return 1
+
+    if args.audio_file:
+        if not args.target:
+            print("--audio-file requires --target.", file=sys.stderr)
+            return 1
+        pair = find_pair_by_word(filtered, args.target)
+        if pair is None:
+            print(
+                f"Target word not found in pairs: {args.target}",
+                file=sys.stderr,
+            )
+            return 1
+        audio_path = args.audio_file
+        if not audio_path.exists():
+            print(f"Audio file not found: {audio_path}", file=sys.stderr)
+            return 1
+        try:
+            transcript, _ = transcribe_audio(audio_path, backend, config)
+        except TranscribeError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+        outcome, heard = classify(transcript, pair.word, pair.partner)
+        result = AttemptResult(
+            word=pair.word,
+            partner=pair.partner,
+            category=pair.category,
+            transcript=transcript,
+            outcome=outcome,
+            heard=heard,
+        )
+        print(format_attempt(result))
+        if config.get("history_enabled", True):
+            _write_drill_history(config, [result], backend)
+        return 0
+
+    if args.target:
+        print("--target is only valid with --audio-file.", file=sys.stderr)
+        return 1
+
+    if not sys.stdin.isatty():
+        print(
+            "Interactive drill requires a TTY; use --audio-file for non-interactive runs.",
+            file=sys.stderr,
+        )
+        return 1
+
+    device = config.get("audio_device")
+    targets = sample_targets(filtered, args.count)
+    results: list[AttemptResult] = []
+    exit_code = 0
+    try:
+        for pair in targets:
+            before = f"Say: {pair.word.upper()}  (not {pair.partner.upper()})"
+            try:
+                audio_path = record_until_enter(
+                    before_prompt=before, device=device
+                )
+            except RecordError as exc:
+                print(str(exc), file=sys.stderr)
+                exit_code = 1
+                break
+            try:
+                try:
+                    transcript, _ = transcribe_audio(audio_path, backend, config)
+                except TranscribeError as exc:
+                    print(str(exc), file=sys.stderr)
+                    exit_code = 1
+                    break
+            finally:
+                if audio_path.exists():
+                    audio_path.unlink()
+            outcome, heard = classify(transcript, pair.word, pair.partner)
+            result = AttemptResult(
+                word=pair.word,
+                partner=pair.partner,
+                category=pair.category,
+                transcript=transcript,
+                outcome=outcome,
+                heard=heard,
+            )
+            print(format_attempt(result))
+            results.append(result)
+    except KeyboardInterrupt:
+        print("\nInterrupted.", file=sys.stderr)
+        exit_code = 1
+
+    if results:
+        print()
+        print(format_summary(results))
+        if config.get("history_enabled", True):
+            _write_drill_history(config, results, backend)
+    return exit_code
+
+
+def _write_drill_history(config: dict, results: list, backend: str) -> None:
+    from .pronunciation.drill import format_summary, results_to_json
+
+    try:
+        history_dir = resolve_history_dir(config)
+        transcripts = "\n".join(r.transcript for r in results)
+        final_text = format_summary(results)
+        metadata = {
+            "type": EXERCISE_DRILL,
+            "backend": backend,
+            "language": "en",
+            "results": results_to_json(results),
+        }
+        write_history(history_dir, transcripts, final_text, metadata)
+    except Exception as exc:  # pragma: no cover - defensive logging
+        print(f"History write failed: {exc}", file=sys.stderr)
+
+
+def _shadow_command(args: argparse.Namespace, config: dict) -> int:
+    from .pronunciation.paragraphs import (
+        ParagraphError,
+        load_paragraph_by_id,
+        load_paragraph_from_file,
+    )
+    from .pronunciation.record import RecordError, record_until_enter
+    from .pronunciation.shadow import (
+        compute_shadow,
+        format_accuracy,
+        ops_to_json,
+        render_diff,
+    )
+    from .pronunciation.transcribe import TranscribeError, transcribe_audio
+
+    backend, err = _resolve_backend(args.backend, config)
+    if err:
+        print(err, file=sys.stderr)
+        return 1
+
+    try:
+        if args.file:
+            target_text = load_paragraph_from_file(args.file)
+        elif args.paragraph_id:
+            paragraphs_dir = Path(config.get("pronunciation_paragraphs_dir") or "")
+            target_text = load_paragraph_by_id(paragraphs_dir, args.paragraph_id)
+        else:
+            print(
+                "Provide a paragraph id or --file.",
+                file=sys.stderr,
+            )
+            return 1
+    except ParagraphError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
+    cleanup = False
+    if args.audio_file:
+        audio_path = args.audio_file
+        if not audio_path.exists():
+            print(f"Audio file not found: {audio_path}", file=sys.stderr)
+            return 1
+    else:
+        if not sys.stdin.isatty():
+            print(
+                "Interactive shadow requires a TTY; use --audio-file for non-interactive runs.",
+                file=sys.stderr,
+            )
+            return 1
+        print(target_text)
+        print()
+        try:
+            audio_path = record_until_enter(
+                before_prompt=None,
+                device=config.get("audio_device"),
+            )
+        except RecordError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+        cleanup = True
+
+    try:
+        transcript, _ = transcribe_audio(audio_path, backend, config)
+    except TranscribeError as exc:
+        print(str(exc), file=sys.stderr)
+        if cleanup and audio_path.exists():
+            audio_path.unlink()
+        return 1
+    finally:
+        if cleanup and audio_path.exists():
+            audio_path.unlink()
+
+    result = compute_shadow(target_text, transcript)
+    color = sys.stdout.isatty()
+    print(render_diff(result.ops, color=color))
+    print(format_accuracy(result.accuracy))
+
+    if config.get("history_enabled", True):
+        try:
+            history_dir = resolve_history_dir(config)
+            final_text = render_diff(result.ops, color=False)
+            metadata = {
+                "type": EXERCISE_SHADOW,
+                "backend": backend,
+                "language": "en",
+                "target_text": target_text,
+                "results": {
+                    "accuracy": result.accuracy,
+                    "ops": ops_to_json(result.ops),
+                },
+            }
+            write_history(history_dir, transcript, final_text, metadata)
+        except Exception as exc:  # pragma: no cover - defensive logging
+            print(f"History write failed: {exc}", file=sys.stderr)
+    return 0
+
+
+def _pairs_list_command(args: argparse.Namespace, config: dict) -> int:
+    from .pronunciation.pairs import PairsError, filter_pairs, load_pairs
+
+    pairs_path = Path(config.get("pronunciation_pairs_path") or "")
+    try:
+        all_pairs = load_pairs(pairs_path)
+    except PairsError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    filtered = filter_pairs(all_pairs, args.category)
+    if not filtered:
+        msg = (
+            f"No pairs in category: {args.category}"
+            if args.category
+            else "No pairs loaded."
+        )
+        print(msg, file=sys.stderr)
+        return 1
+    by_category: dict[str, list] = {}
+    for pair in filtered:
+        by_category.setdefault(pair.category, []).append(pair)
+    for category in sorted(by_category):
+        print(f"{category}:")
+        for pair in by_category[category]:
+            print(f"  {pair.word} / {pair.partner}")
+    return 0
+
+
 def _cancel_command() -> int:
     try:
         state = load_state()
@@ -300,6 +610,12 @@ def main() -> int:
         return _stop_command(config)
     if args.command == "cancel":
         return _cancel_command()
+    if args.command == "drill":
+        return _drill_command(args, config)
+    if args.command == "shadow":
+        return _shadow_command(args, config)
+    if args.command == "pairs-list":
+        return _pairs_list_command(args, config)
 
     print("Unknown command.", file=sys.stderr)
     return 1

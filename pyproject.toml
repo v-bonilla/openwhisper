@@ -32,4 +32,13 @@ package = true
 [dependency-groups]
 dev = [
     "ruff>=0.15.0",
+    "pytest>=8",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+markers = [
+    "whisper: integration tests requiring whisper-cli",
+    "parakeet: integration tests requiring parakeet + sherpa-onnx",
 ]

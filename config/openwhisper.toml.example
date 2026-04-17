@@ -20,3 +20,7 @@
 # history_dir = "./data/history"
 # audio_device = "default"
 # translation_target = "en"
+
+# Pronunciation training
+# pronunciation_pairs_path = "./data/pronunciation/minimal_pairs.json"
+# pronunciation_paragraphs_dir = "./data/pronunciation/paragraphs"

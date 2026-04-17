@@ -36,6 +36,12 @@ def load_config() -> dict:
         "history_dir": str(REPO_ROOT / "data" / "history"),
         "audio_device": None,
         "translation_target": None,
+        "pronunciation_pairs_path": str(
+            REPO_ROOT / "data" / "pronunciation" / "minimal_pairs.json"
+        ),
+        "pronunciation_paragraphs_dir": str(
+            REPO_ROOT / "data" / "pronunciation" / "paragraphs"
+        ),
     }
     if CONFIG_PATH.exists():
         with CONFIG_PATH.open("rb") as handle:
