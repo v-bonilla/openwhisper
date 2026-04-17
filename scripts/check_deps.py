@@ -76,10 +76,11 @@ def main() -> int:
     if problem:
         missing.append(problem)
 
-    if _missing(AUDIO_PRIMARY) and _missing(AUDIO_FALLBACK):
-        missing.append("pw-record or parec")
-    if not _missing(AUDIO_FALLBACK) and _missing(AUDIO_CONVERTERS):
-        missing.append("sox or ffmpeg (required for parec)")
+    if _missing(AUDIO_PRIMARY):
+        if _missing(AUDIO_FALLBACK):
+            missing.append("pw-record or parec")
+        elif _missing(AUDIO_CONVERTERS):
+            missing.append("sox or ffmpeg (required for parec)")
 
     if _missing(CLIPBOARD):
         missing.append("dbus-send")
