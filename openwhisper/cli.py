@@ -8,18 +8,22 @@ import sys
 from .audio import AudioError, start_recording, stop_recording
 from .config import REPO_ROOT, load_config, resolve_history_dir
 from .constants import (
+    BACKEND_PARAKEET,
+    BACKEND_WHISPER,
     MODE_EMAIL,
     MODE_NOTE,
     MODE_VOICE,
     PROMPT_EMAIL,
     PROMPT_NOTE,
     PROMPT_TRANSLATION,
+    SUPPORTED_BACKENDS,
     SUPPORTED_LANGUAGES,
     SUPPORTED_MODES,
 )
 from .history import write_history
 from .llama import LlamaError, run_llama
 from .output import OutputError, copy_to_clipboard, notify_clipboard_copied, write_output
+from .parakeet import PARAKEET_FILES, ParakeetError, run_parakeet
 from .state import StateError, clear_state, load_state, save_state
 from .whisper import WhisperError, run_whisper
 
@@ -32,6 +36,7 @@ def _parse_args() -> argparse.Namespace:
     start_parser.add_argument("--mode", choices=sorted(SUPPORTED_MODES))
     start_parser.add_argument("--language", choices=sorted(SUPPORTED_LANGUAGES))
     start_parser.add_argument("--translate", choices=sorted(SUPPORTED_LANGUAGES))
+    start_parser.add_argument("--backend", choices=sorted(SUPPORTED_BACKENDS))
     start_parser.add_argument("--no-clipboard", action="store_true")
     start_parser.add_argument("--no-history", action="store_true")
     start_parser.add_argument("--output", type=Path)
@@ -64,6 +69,19 @@ def _validate_binary_path(value: str | None, label: str) -> None:
 
         if which(value) is None:
             raise ValueError(f"{label} not found on PATH: {value}")
+
+
+def _validate_parakeet_model_dir(value: str | None) -> None:
+    if not value:
+        raise ValueError("parakeet_model_dir is not set.")
+    model_dir = Path(value)
+    if not model_dir.is_dir():
+        raise ValueError(f"parakeet_model_dir not found: {value}")
+    missing = [name for name in PARAKEET_FILES if not (model_dir / name).exists()]
+    if missing:
+        raise ValueError(
+            f"parakeet_model_dir missing files: {', '.join(missing)} in {value}"
+        )
 
 
 def _validate_language_pair(language: str | None, translate: str | None) -> None:
@@ -107,6 +125,11 @@ def _start_command(args: argparse.Namespace, config: dict) -> int:
         print(f"Unsupported mode: {mode}", file=sys.stderr)
         return 1
 
+    backend = args.backend or config.get("transcription_backend", BACKEND_WHISPER)
+    if backend not in SUPPORTED_BACKENDS:
+        print(f"Unsupported backend: {backend}", file=sys.stderr)
+        return 1
+
     language = args.language or config.get("default_language")
     translate = args.translate or config.get("translation_target")
     try:
@@ -129,6 +152,7 @@ def _start_command(args: argparse.Namespace, config: dict) -> int:
         "pids": recording.pids,
         "method": recording.method,
         "mode": mode,
+        "backend": backend,
         "language": language,
         "translate": translate,
         "clipboard_enabled": config.get("clipboard_enabled", True) and not args.no_clipboard,
@@ -157,24 +181,41 @@ def _stop_command(config: dict) -> int:
     translate_target = state.get("translate")
     llama_cli_path = config.get("llama_cli_path", "llama-cli")
 
+    backend = state.get("backend", BACKEND_WHISPER)
     try:
-        try:
-            _validate_binary_path(config.get("whisper_cli_path"), "whisper_cli_path")
-            _validate_model_path(config.get("whisper_model_path"), "whisper_model_path")
-        except ValueError as exc:
-            print(str(exc), file=sys.stderr)
-            return 1
-
-        try:
-            transcript, detected = run_whisper(
-                audio_path,
-                config.get("whisper_model_path"),
-                state.get("language"),
-                config.get("whisper_cli_path", "whisper-cli"),
-            )
-        except WhisperError as exc:
-            print(str(exc), file=sys.stderr)
-            return 1
+        if backend == BACKEND_PARAKEET:
+            try:
+                _validate_parakeet_model_dir(config.get("parakeet_model_dir"))
+            except ValueError as exc:
+                print(str(exc), file=sys.stderr)
+                return 1
+            try:
+                transcript, detected = run_parakeet(
+                    audio_path,
+                    config.get("parakeet_model_dir"),
+                    state.get("language"),
+                    int(config.get("parakeet_num_threads", 4)),
+                )
+            except ParakeetError as exc:
+                print(str(exc), file=sys.stderr)
+                return 1
+        else:
+            try:
+                _validate_binary_path(config.get("whisper_cli_path"), "whisper_cli_path")
+                _validate_model_path(config.get("whisper_model_path"), "whisper_model_path")
+            except ValueError as exc:
+                print(str(exc), file=sys.stderr)
+                return 1
+            try:
+                transcript, detected = run_whisper(
+                    audio_path,
+                    config.get("whisper_model_path"),
+                    state.get("language"),
+                    config.get("whisper_cli_path", "whisper-cli"),
+                )
+            except WhisperError as exc:
+                print(str(exc), file=sys.stderr)
+                return 1
 
         text = transcript
         llama_available = True
@@ -216,6 +257,7 @@ def _stop_command(config: dict) -> int:
             history_dir = resolve_history_dir(config)
             metadata = {
                 "mode": state["mode"],
+                "backend": backend,
                 "language": state.get("language") or detected,
                 "translate": translate_target,
                 "audio_path": str(audio_path),

@@ -1,7 +1,16 @@
 # Optional configuration for OpenWhisper.
 
+# Transcription backend: "whisper" (default) or "parakeet"
+# transcription_backend = "whisper"
+
+# Whisper (whisper.cpp) backend
 # whisper_cli_path = "/path/to/whisper-cli"
 # whisper_model_path = "/path/to/large-v3.bin"
+
+# Parakeet (sherpa-onnx) backend
+# parakeet_model_dir = "/path/to/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8"
+# parakeet_num_threads = 4
+
 # llama_cli_path = "/path/to/llama-cli"
 # llama_model_path = "/path/to/gpt-oss-20b.bin"
 # default_mode = "voice-to-text"

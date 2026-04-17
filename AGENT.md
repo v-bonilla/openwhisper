@@ -1,7 +1,7 @@
 # OpenWhisper Agent Notes
 
 ## Purpose
-OpenWhisper is a Linux-only CLI dictation tool. It records audio, transcribes via `whisper-cli`, optionally translates or formats output via `llama-cli`, and writes to stdout/clipboard/history.
+OpenWhisper is a Linux-only CLI dictation tool. It records audio, transcribes via either `whisper-cli` (whisper.cpp) or Parakeet-TDT via `sherpa-onnx`, optionally translates or formats output via `llama-cli`, and writes to stdout/clipboard/history.
 
 ## Entry Points
 - CLI: `openwhisper start|stop|cancel`
@@ -20,10 +20,16 @@ OpenWhisper is a Linux-only CLI dictation tool. It records audio, transcribes vi
 - `cancel`: stop recording and delete temp audio without processing.
 
 ## Dependencies
-- `whisper-cli` (whisper.cpp)
+- `whisper-cli` (whisper.cpp) — required for `whisper` backend
+- `sherpa-onnx` + Parakeet-TDT v3 int8 model — required for `parakeet` backend (`uv sync --extra parakeet`)
 - `llama-cli` (llama.cpp)
 - Audio: `pw-record` or `parec` + `sox`/`ffmpeg`
 - Clipboard: DBus via xdg-desktop-portal (`dbus-send`)
+
+## Transcription Backends
+- Selected via `transcription_backend` config key or `--backend {whisper,parakeet}` CLI flag; persisted in `data/tmp/recording_state.json` so `stop` matches `start`.
+- Whisper path: `openwhisper/whisper.py` shells out to `whisper-cli`.
+- Parakeet path: `openwhisper/parakeet.py` uses the `sherpa_onnx.OfflineRecognizer` Python API with int8 NeMo transducer weights.
 
 ## Dev
 - Python 3.13

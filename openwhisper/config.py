@@ -4,7 +4,9 @@ from pathlib import Path
 import tomllib
 
 from .constants import (
+    BACKEND_WHISPER,
     DEFAULT_LLAMA_MODEL,
+    DEFAULT_PARAKEET_MODEL_DIR,
     DEFAULT_WHISPER_MODEL,
     MODE_VOICE,
 )
@@ -19,8 +21,11 @@ class ConfigError(RuntimeError):
 
 def load_config() -> dict:
     config = {
+        "transcription_backend": BACKEND_WHISPER,
         "whisper_cli_path": "whisper-cli",
         "whisper_model_path": DEFAULT_WHISPER_MODEL,
+        "parakeet_model_dir": DEFAULT_PARAKEET_MODEL_DIR,
+        "parakeet_num_threads": 4,
         "llama_cli_path": "llama-cli",
         "llama_model_path": DEFAULT_LLAMA_MODEL,
         "default_mode": MODE_VOICE,

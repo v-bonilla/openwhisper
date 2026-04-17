@@ -7,6 +7,11 @@ SUPPORTED_LANGUAGES = {
 
 DEFAULT_WHISPER_MODEL = "large-v3"
 DEFAULT_LLAMA_MODEL = "gpt-oss-20b"
+DEFAULT_PARAKEET_MODEL_DIR = "sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8"
+
+BACKEND_WHISPER = "whisper"
+BACKEND_PARAKEET = "parakeet"
+SUPPORTED_BACKENDS = {BACKEND_WHISPER, BACKEND_PARAKEET}
 
 MODE_VOICE = "voice-to-text"
 MODE_EMAIL = "email"
