@@ -7,6 +7,7 @@ OpenWhisper is a Linux-only CLI dictation tool. It records audio, transcribes vi
 - Optional translation between en/es/de/fr
 - Local-only inference (no network calls)
 - CLI driven hotkey workflows
+- English pronunciation training: minimal-pair drills and shadow-read with word-level diff
 
 ## Transcription Backends
 - `whisper` (default): `whisper-cli` from [whisper.cpp](https://github.com/ggerganov/whisper.cpp). Default model `large-v3`. Full 99-language coverage.
@@ -59,6 +60,31 @@ uv run openwhisper stop
 uv run openwhisper start --mode voice-to-text --backend parakeet
 uv run openwhisper stop
 ```
+
+## Pronunciation Training
+Two English pronunciation exercises, reusing the existing transcription backends:
+
+```bash
+# Minimal-pair drill: say each target; each attempt is PASS / CONFUSED / UNCLEAR
+uv run openwhisper drill --count 10
+uv run openwhisper drill --category r-l          # restrict to one category
+
+# Shadow-read: read the paragraph aloud; prints an ANSI-colored word-level diff
+uv run openwhisper shadow sample-1               # seeded paragraph by id
+uv run openwhisper shadow --file ./my-para.txt   # arbitrary paragraph
+
+# List available pairs
+uv run openwhisper pairs-list
+uv run openwhisper pairs-list --category i-ii
+
+# Non-interactive mode (CI / dev): skip the mic, use a pre-recorded WAV
+uv run openwhisper drill --audio-file sheep.wav --target sheep
+uv run openwhisper shadow --audio-file para.wav --file ./my-para.txt
+```
+
+Seeded data lives under `data/pronunciation/`. Paths are overridable via
+`pronunciation_pairs_path` and `pronunciation_paragraphs_dir` in
+`config/openwhisper.toml`. See `docs/pronunciation-prd.md` for design details.
 
 ## Usage
 See `docs/usage.md` for CLI examples and hotkey setup.
