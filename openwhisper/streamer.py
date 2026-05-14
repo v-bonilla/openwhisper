@@ -18,9 +18,11 @@ BYTES_PER_SECOND = SAMPLE_RATE * BYTES_PER_SAMPLE
 
 TMP_DIR = REPO_ROOT / "data" / "tmp"
 
-# Sentinel finalize / cancel commands written to control FIFO.
 CMD_FINALIZE = "finalize"
 CMD_CANCEL = "cancel"
+
+MIN_TAIL_SECONDS = 0.3
+PCM_TRIM_THRESHOLD_BYTES = 1_000_000
 
 
 def fifo_path() -> Path:
@@ -54,15 +56,11 @@ def _read_pid_start_time(pid: int) -> Optional[int]:
             data = f.read()
     except (FileNotFoundError, PermissionError):
         return None
-    # Field 2 is "(comm)" which may contain spaces / parens; split after the
-    # closing ')'.
+    # comm (field 2) may contain spaces or parens; split after the closing ')'.
     rparen = data.rfind(b")")
     if rparen < 0:
         return None
     fields = data[rparen + 2 :].split()
-    # After comm, fields start at index 0 = state. start_time is field 22 in
-    # the man page (1-indexed including pid+comm), which after our split is
-    # index 19 (we dropped pid and comm).
     if len(fields) < 20:
         return None
     try:
@@ -90,8 +88,8 @@ def spawn_streamer(
     language: str,
     config: dict,
 ) -> dict:
-    """Double-fork a detached streamer daemon. Return a dict with the
-    streamer metadata to merge into the recording state file.
+    """Double-fork a detached streamer daemon. Return the streamer metadata
+    to merge into the recording state file.
 
     Blocks up to ~3s waiting for the daemon to write its ready file. Raises
     RuntimeError if the daemon fails to come up.
@@ -102,21 +100,16 @@ def spawn_streamer(
     fifo = fifo_path()
     os.mkfifo(fifo, 0o600)
 
-    # First fork.
     pid = os.fork()
     if pid > 0:
-        # Original parent: wait on intermediate child (which exits after the
-        # second fork), then poll for the ready file.
         os.waitpid(pid, 0)
         deadline = time.monotonic() + 3.0
         while time.monotonic() < deadline:
             if ready_path().exists():
-                ready_data = json.loads(ready_path().read_text())
-                return ready_data
+                return json.loads(ready_path().read_text())
             time.sleep(0.05)
         raise RuntimeError("Streamer daemon failed to come up within 3s.")
 
-    # Intermediate child: setsid then second fork.
     try:
         os.setsid()
     except OSError:
@@ -125,7 +118,6 @@ def spawn_streamer(
     if pid2 > 0:
         os._exit(0)
 
-    # Daemon (grandchild).
     try:
         _daemon_main(backend, language, dict(config))
     except SystemExit:
@@ -141,7 +133,6 @@ def spawn_streamer(
 
 
 def _daemon_main(backend: str, language: str, config: dict) -> None:
-    # Detach from terminal: redirect std fds.
     os.chdir("/")
     devnull = os.open(os.devnull, os.O_RDWR)
     logf = os.open(str(log_path()), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
@@ -157,16 +148,13 @@ def _daemon_main(backend: str, language: str, config: dict) -> None:
         sys.stderr.write(f"[{time.strftime('%H:%M:%S')}] {msg}\n")
         sys.stderr.flush()
 
-    # Imports deferred until inside the daemon (faster parent startup, and
-    # avoids loading heavy modules in the failure path).
+    # Imports deferred until inside the daemon: keeps parent startup snappy
+    # and avoids loading heavy modules on the failure path.
     import selectors
     import subprocess
     from .audio import start_raw_pcm_capture
-    from .constants import BACKEND_PARAKEET, BACKEND_WHISPER
     from .diff import compute_suffix
     from .output import start_ydotool_typing
-    from .parakeet import ParakeetError, run_parakeet
-    from .whisper import WhisperError, run_whisper
 
     daemon_pid = os.getpid()
     start_time = _read_pid_start_time(daemon_pid)
@@ -183,14 +171,12 @@ def _daemon_main(backend: str, language: str, config: dict) -> None:
         overlap_bytes = int(0.8 * BYTES_PER_SECOND)
         advance_bytes = chunk_bytes - overlap_bytes
 
-    # Start audio capture.
     try:
         audio_proc = start_raw_pcm_capture(config.get("audio_device"))
     except Exception as exc:
         log(f"audio capture failed: {exc}")
         return
 
-    # Start ydotool with stdin open.
     try:
         ydotool_proc = start_ydotool_typing(
             config.get("auto_type_binary", "ydotool"),
@@ -202,16 +188,11 @@ def _daemon_main(backend: str, language: str, config: dict) -> None:
         _terminate_proc(audio_proc)
         return
 
-    # Open control FIFO non-blocking. We must open the read end AFTER mkfifo.
     fifo_fd = os.open(str(fifo_path()), os.O_RDONLY | os.O_NONBLOCK)
 
-    # Write the ready file so the parent unblocks.
     ready_payload = {
         "streamer_pid": daemon_pid,
         "streamer_start_time": start_time,
-        "fifo_path": str(fifo_path()),
-        "result_path": str(result_path()),
-        "log_path": str(log_path()),
     }
     ready_tmp = ready_path().with_suffix(".tmp")
     ready_tmp.write_text(json.dumps(ready_payload))
@@ -225,10 +206,10 @@ def _daemon_main(backend: str, language: str, config: dict) -> None:
     chunk_start = 0
     committed = ""
     fifo_buf = b""
-    cmd = None  # set to "finalize" or "cancel"
+    cmd = None  # set to CMD_FINALIZE or CMD_CANCEL
     ydotool_dead = False
-
     audio_eof = False
+
     log(f"loop starting; chunk={chunk_bytes}B overlap={overlap_bytes}B advance={advance_bytes}B")
 
     while True:
@@ -255,70 +236,41 @@ def _daemon_main(backend: str, language: str, config: dict) -> None:
                     data = b""
                 if data:
                     fifo_buf += data
-                    if b"\n" in fifo_buf:
-                        line = fifo_buf.split(b"\n", 1)[0].decode(errors="replace").strip()
-                        log(f"fifo cmd: {line!r}")
-                        if line == CMD_FINALIZE:
+                    while b"\n" in fifo_buf:
+                        line, fifo_buf = fifo_buf.split(b"\n", 1)
+                        decoded = line.decode(errors="replace").strip()
+                        log(f"fifo cmd: {decoded!r}")
+                        if decoded == CMD_FINALIZE:
                             cmd = CMD_FINALIZE
-                        elif line == CMD_CANCEL:
+                        elif decoded == CMD_CANCEL:
                             cmd = CMD_CANCEL
                         else:
-                            log(f"unknown fifo cmd: {line!r}")
+                            log(f"unknown fifo cmd: {decoded!r}")
 
-        # Transcribe new chunks while we have enough buffered audio.
         while not cmd and (len(pcm) - chunk_start) >= chunk_bytes:
             end = chunk_start + chunk_bytes
-            wav_path = TMP_DIR / f"stream-chunk-{daemon_pid}-{chunk_start}.wav"
-            try:
-                _write_wav(wav_path, bytes(pcm[chunk_start:end]))
-            except Exception as exc:
-                log(f"write chunk wav failed: {exc}")
-                chunk_start += advance_bytes
-                continue
-
-            text = _transcribe(
-                wav_path, backend, language, config,
-                BACKEND_PARAKEET, BACKEND_WHISPER,
-                run_parakeet, run_whisper,
-                ParakeetError, WhisperError, log,
+            chunk_pcm = bytes(pcm[chunk_start:end])
+            committed, ydotool_dead = _emit_suffix(
+                chunk_pcm,
+                f"stream-chunk-{daemon_pid}-{chunk_start}.wav",
+                backend, language, config,
+                committed, ydotool_proc, ydotool_dead,
+                compute_suffix, log,
             )
-            try:
-                wav_path.unlink()
-            except FileNotFoundError:
-                pass
-
-            if text:
-                suffix = compute_suffix(committed, text)
-                if suffix:
-                    committed = (committed + suffix).rstrip() if committed else suffix.lstrip()
-                    if not ydotool_dead:
-                        try:
-                            ydotool_proc.stdin.write(suffix)
-                            ydotool_proc.stdin.flush()
-                        except (BrokenPipeError, OSError) as exc:
-                            log(f"ydotool write failed: {exc}; continuing capture")
-                            ydotool_dead = True
             chunk_start += advance_bytes
+            if chunk_start > PCM_TRIM_THRESHOLD_BYTES:
+                del pcm[:chunk_start]
+                chunk_start = 0
 
-        # Exit conditions.
         if cmd == CMD_CANCEL:
             log("cancel: aborting")
             _terminate_proc(audio_proc)
-            try:
-                if ydotool_proc.stdin and not ydotool_proc.stdin.closed:
-                    ydotool_proc.stdin.close()
-            except Exception:
-                pass
-            try:
-                ydotool_proc.kill()
-            except Exception:
-                pass
+            _shutdown_ydotool(ydotool_proc, drain=False, timeout=0, subprocess=subprocess)
             break
 
         if cmd == CMD_FINALIZE or audio_eof:
             log("finalize: draining audio")
             _terminate_proc(audio_proc)
-            # Drain any remaining buffered bytes from the pipe.
             if not audio_eof:
                 try:
                     while True:
@@ -328,44 +280,19 @@ def _daemon_main(backend: str, language: str, config: dict) -> None:
                         pcm.extend(data)
                 except Exception:
                     pass
-            # Transcribe the tail chunk (whatever's left after chunk_start).
             tail = bytes(pcm[chunk_start:])
-            if len(tail) >= int(0.3 * BYTES_PER_SECOND):
-                wav_path = TMP_DIR / f"stream-chunk-{daemon_pid}-tail.wav"
+            if len(tail) >= int(MIN_TAIL_SECONDS * BYTES_PER_SECOND):
                 try:
-                    _write_wav(wav_path, tail)
-                    text = _transcribe(
-                        wav_path, backend, language, config,
-                        BACKEND_PARAKEET, BACKEND_WHISPER,
-                        run_parakeet, run_whisper,
-                        ParakeetError, WhisperError, log,
+                    committed, ydotool_dead = _emit_suffix(
+                        tail,
+                        f"stream-chunk-{daemon_pid}-tail.wav",
+                        backend, language, config,
+                        committed, ydotool_proc, ydotool_dead,
+                        compute_suffix, log,
                     )
-                    wav_path.unlink(missing_ok=True)
-                    if text:
-                        suffix = compute_suffix(committed, text)
-                        if suffix:
-                            committed = (committed + suffix).rstrip() if committed else suffix.lstrip()
-                            if not ydotool_dead:
-                                try:
-                                    ydotool_proc.stdin.write(suffix)
-                                    ydotool_proc.stdin.flush()
-                                except (BrokenPipeError, OSError) as exc:
-                                    log(f"ydotool tail write failed: {exc}")
-                                    ydotool_dead = True
                 except Exception as exc:
                     log(f"tail transcribe failed: {exc}")
-            # Close ydotool stdin and let it drain.
-            try:
-                if ydotool_proc.stdin and not ydotool_proc.stdin.closed:
-                    ydotool_proc.stdin.close()
-            except Exception:
-                pass
-            try:
-                ydotool_proc.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                log("ydotool wait timed out; killing")
-                ydotool_proc.kill()
-            # Write the result file for the stop command.
+            _shutdown_ydotool(ydotool_proc, drain=True, timeout=10, subprocess=subprocess, log=log)
             try:
                 result_path().write_text(committed, encoding="utf-8")
             except Exception as exc:
@@ -373,6 +300,77 @@ def _daemon_main(backend: str, language: str, config: dict) -> None:
             break
 
     log("daemon exiting")
+
+
+def _emit_suffix(
+    chunk_pcm: bytes,
+    wav_name: str,
+    backend: str,
+    language: str,
+    config: dict,
+    committed: str,
+    ydotool_proc,
+    ydotool_dead: bool,
+    compute_suffix,
+    log,
+) -> tuple[str, bool]:
+    """Transcribe one PCM chunk, compute the new suffix, and type it.
+    Returns updated (committed, ydotool_dead).
+    """
+    wav_path = TMP_DIR / wav_name
+    try:
+        _write_wav(wav_path, chunk_pcm)
+    except Exception as exc:
+        log(f"write chunk wav failed: {exc}")
+        return committed, ydotool_dead
+
+    text = _transcribe(wav_path, backend, language, config, log)
+    try:
+        wav_path.unlink()
+    except FileNotFoundError:
+        pass
+
+    if not text:
+        return committed, ydotool_dead
+
+    suffix = compute_suffix(committed, text)
+    if not suffix:
+        return committed, ydotool_dead
+
+    committed = (committed + suffix).rstrip() if committed else suffix.lstrip()
+    if ydotool_dead:
+        return committed, ydotool_dead
+    try:
+        ydotool_proc.stdin.write(suffix)
+        ydotool_proc.stdin.flush()
+    except (BrokenPipeError, OSError) as exc:
+        log(f"ydotool write failed: {exc}; continuing capture")
+        ydotool_dead = True
+    return committed, ydotool_dead
+
+
+def _shutdown_ydotool(proc, *, drain: bool, timeout: float, subprocess, log=None) -> None:
+    """Close ydotool stdin and reap the process. ``drain=True`` waits up to
+    ``timeout`` seconds for ydotool to flush queued keystrokes; otherwise
+    kill immediately.
+    """
+    try:
+        if proc.stdin and not proc.stdin.closed:
+            proc.stdin.close()
+    except Exception:
+        pass
+    if not drain:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+        return
+    try:
+        proc.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        if log:
+            log("ydotool wait timed out; killing")
+        proc.kill()
 
 
 def _write_wav(path: Path, pcm: bytes) -> None:
@@ -388,14 +386,12 @@ def _transcribe(
     backend: str,
     language: str,
     config: dict,
-    BACKEND_PARAKEET: str,
-    BACKEND_WHISPER: str,
-    run_parakeet,
-    run_whisper,
-    ParakeetError,
-    WhisperError,
     log,
 ) -> str:
+    from .constants import BACKEND_PARAKEET, BACKEND_WHISPER
+    from .parakeet import ParakeetError, run_parakeet
+    from .whisper import WhisperError, run_whisper
+
     t0 = time.monotonic()
     try:
         if backend == BACKEND_PARAKEET:
@@ -459,12 +455,10 @@ def _signal_and_wait(
     read_result: bool,
 ) -> str:
     if not _proc_alive(pid, start_time):
-        # Daemon already gone; honor result file if present.
         if read_result and result_path().exists():
             return result_path().read_text(encoding="utf-8")
         return ""
 
-    # Open FIFO non-blocking for write, fall back to SIGTERM on ENXIO.
     fifo = fifo_path()
     wrote = False
     if fifo.exists():
@@ -477,8 +471,6 @@ def _signal_and_wait(
                 os.close(fd)
         except OSError as exc:
             if exc.errno != errno.ENXIO:
-                # ENXIO would mean no reader on the FIFO; any other errno
-                # means something else is wrong but we'll still try signals.
                 pass
 
     if not wrote:
@@ -488,14 +480,12 @@ def _signal_and_wait(
         except ProcessLookupError:
             pass
 
-    # Poll for exit.
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
         if not _proc_alive(pid, start_time):
             break
         time.sleep(0.1)
     else:
-        # Forceful termination.
         try:
             os.kill(pid, signal.SIGKILL)
         except ProcessLookupError:

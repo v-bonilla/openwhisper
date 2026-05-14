@@ -137,18 +137,3 @@ def abort_ydotool_typing(proc: subprocess.Popen) -> None:
         proc.wait(timeout=1)
     except Exception:
         pass
-
-
-def type_via_ydotool(
-    text: str,
-    binary: str,
-    key_delay_ms: int,
-    focus_delay_ms: int,
-    key_hold_ms: int = 0,
-) -> None:
-    proc = start_ydotool_typing(binary, key_delay_ms, key_hold_ms)
-    try:
-        finish_ydotool_typing(proc, text, focus_delay_ms)
-    except OutputError:
-        abort_ydotool_typing(proc)
-        raise

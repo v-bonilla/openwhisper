@@ -245,9 +245,6 @@ def _start_command(args: argparse.Namespace, config: dict) -> int:
             "started_at": timestamp,
             "streamer_pid": streamer_info["streamer_pid"],
             "streamer_start_time": streamer_info["streamer_start_time"],
-            "fifo_path": streamer_info["fifo_path"],
-            "result_path": streamer_info["result_path"],
-            "log_path": streamer_info["log_path"],
         }
         save_state(state)
         print(f"Streaming auto-type started (pid {streamer_info['streamer_pid']}).")

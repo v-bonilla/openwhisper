@@ -8,7 +8,6 @@ from openwhisper.output import (
     abort_ydotool_typing,
     finish_ydotool_typing,
     start_ydotool_typing,
-    type_via_ydotool,
 )
 
 
@@ -30,8 +29,6 @@ class FakePopen:
         self.killed = False
         self._alive = True
 
-    # The real Popen has stdin/stderr as real file objects; StringIO mimics
-    # enough for our tests.
     def communicate(self, input=None, timeout=None):
         self.communicate_input = input
         self._alive = False
@@ -63,7 +60,6 @@ def _patch_popen(monkeypatch, *, returncode=0, stderr="", raise_on_communicate=N
                 raise raise_on_communicate
 
             proc.communicate = communicate  # type: ignore[method-assign]
-            # also let proc.stderr.read() return the stderr_buf after BrokenPipe
             proc.stderr = io.StringIO(stderr)
         created["proc"] = proc
         return proc
@@ -76,11 +72,20 @@ def _patch_which_found(monkeypatch, path="/usr/bin/ydotool"):
     monkeypatch.setattr("openwhisper.output.which", lambda binary: path)
 
 
+def _drive_type(binary, key_delay_ms, focus_delay_ms, text, key_hold_ms=0):
+    proc = start_ydotool_typing(binary, key_delay_ms, key_hold_ms)
+    try:
+        finish_ydotool_typing(proc, text, focus_delay_ms)
+    except OutputError:
+        abort_ydotool_typing(proc)
+        raise
+
+
 def test_happy_path(monkeypatch):
     _patch_which_found(monkeypatch)
     created = _patch_popen(monkeypatch, returncode=0)
 
-    type_via_ydotool("hello world\n", "ydotool", 0, 0, 0)
+    _drive_type("ydotool", 0, 0, "hello world\n")
 
     proc = created["proc"]
     assert proc.argv == [
@@ -105,7 +110,7 @@ def test_trailing_newline_only_stripped(monkeypatch):
     _patch_which_found(monkeypatch)
     created = _patch_popen(monkeypatch, returncode=0)
 
-    type_via_ydotool("line1\nline2\n", "ydotool", 20, 0)
+    _drive_type("ydotool", 20, 0, "line1\nline2\n")
 
     assert created["proc"].communicate_input == "line1\nline2"
 
@@ -121,7 +126,7 @@ def test_missing_binary_raises_and_no_popen(monkeypatch):
     monkeypatch.setattr("openwhisper.output.subprocess.Popen", fake_popen)
 
     with pytest.raises(OutputError) as exc:
-        type_via_ydotool("hi", "ydotool", 20, 0)
+        _drive_type("ydotool", 20, 0, "hi")
 
     assert "ydotool not found on PATH" in str(exc.value)
     assert popen_calls == []
@@ -132,7 +137,7 @@ def test_nonzero_return_with_stderr(monkeypatch):
     _patch_popen(monkeypatch, returncode=1, stderr="failed to connect to socket")
 
     with pytest.raises(OutputError) as exc:
-        type_via_ydotool("hi", "ydotool", 20, 0)
+        _drive_type("ydotool", 20, 0, "hi")
 
     msg = str(exc.value)
     assert "ydotool type failed" in msg
@@ -144,7 +149,7 @@ def test_nonzero_return_with_empty_stderr(monkeypatch):
     _patch_popen(monkeypatch, returncode=2, stderr="")
 
     with pytest.raises(OutputError) as exc:
-        type_via_ydotool("hi", "ydotool", 20, 0)
+        _drive_type("ydotool", 20, 0, "hi")
 
     msg = str(exc.value)
     assert "ydotool type failed" in msg
@@ -161,7 +166,7 @@ def test_broken_pipe_during_write_raises_output_error(monkeypatch):
     )
 
     with pytest.raises(OutputError) as exc:
-        type_via_ydotool("hi", "ydotool", 20, 0)
+        _drive_type("ydotool", 20, 0, "hi")
 
     msg = str(exc.value)
     assert "ydotool type failed" in msg
@@ -176,7 +181,7 @@ def test_focus_delay_applied(monkeypatch):
     sleeps: list[float] = []
     monkeypatch.setattr("openwhisper.output.time.sleep", lambda s: sleeps.append(s))
 
-    type_via_ydotool("hi", "ydotool", 20, 300)
+    _drive_type("ydotool", 20, 300, "hi")
 
     assert sleeps == [0.3]
 
@@ -188,7 +193,7 @@ def test_focus_delay_zero_no_sleep(monkeypatch):
     sleeps: list[float] = []
     monkeypatch.setattr("openwhisper.output.time.sleep", lambda s: sleeps.append(s))
 
-    type_via_ydotool("hi", "ydotool", 20, 0)
+    _drive_type("ydotool", 20, 0, "hi")
 
     assert sleeps == []
 
@@ -203,7 +208,7 @@ def test_custom_binary_name(monkeypatch):
     monkeypatch.setattr("openwhisper.output.which", fake_which)
     created = _patch_popen(monkeypatch, returncode=0)
 
-    type_via_ydotool("hi", "my-ydotool", 50, 0, 7)
+    _drive_type("my-ydotool", 50, 0, "hi", key_hold_ms=7)
 
     assert which_calls == ["my-ydotool"]
     argv = created["proc"].argv
@@ -219,7 +224,6 @@ def test_start_returns_running_process_without_writing(monkeypatch):
     proc = start_ydotool_typing("ydotool", 0, 0)
 
     assert created["proc"] is proc
-    # No input was written: communicate() was never called.
     assert proc.communicate_input is None
     assert proc.argv[:2] == ["ydotool", "type"]
 
@@ -240,9 +244,7 @@ def test_abort_is_safe_when_process_already_exited(monkeypatch):
     _patch_popen(monkeypatch, returncode=0)
 
     proc = start_ydotool_typing("ydotool", 0, 0)
-    # Drain via communicate so poll() returns the returncode.
     finish_ydotool_typing(proc, "hi", 0)
 
-    # Should be a no-op (no kill of an already-exited process).
     abort_ydotool_typing(proc)
     assert proc.killed is False
