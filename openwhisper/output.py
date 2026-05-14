@@ -76,21 +76,79 @@ def write_output(text: str, output_path: Path | None) -> None:
     print(text)
 
 
-def type_via_ydotool(text: str, binary: str, key_delay_ms: int, focus_delay_ms: int) -> None:
+def start_ydotool_typing(
+    binary: str, key_delay_ms: int, key_hold_ms: int
+) -> subprocess.Popen:
     if which(binary) is None:
         raise OutputError(f"ydotool not found on PATH: {binary}")
 
+    return subprocess.Popen(
+        [
+            binary,
+            "type",
+            "--file",
+            "-",
+            "--escape=0",
+            "--key-delay",
+            str(key_delay_ms),
+            "--key-hold",
+            str(key_hold_ms),
+        ],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+
+def finish_ydotool_typing(
+    proc: subprocess.Popen, text: str, focus_delay_ms: int
+) -> None:
     if focus_delay_ms > 0:
         time.sleep(focus_delay_ms / 1000)
 
-    proc = subprocess.run(
-        [binary, "type", "--file", "-", "--escape=0", "--key-delay", str(key_delay_ms)],
-        input=text.rstrip("\n"),
-        text=True,
-        capture_output=True,
-    )
+    try:
+        _, stderr = proc.communicate(input=text.rstrip("\n"))
+    except BrokenPipeError:
+        proc.wait()
+        stderr = ""
+        if proc.stderr is not None:
+            try:
+                stderr = proc.stderr.read() or ""
+            except Exception:
+                stderr = ""
+
     if proc.returncode != 0:
-        err = (proc.stderr or "").strip()
+        err = (stderr or "").strip()
         if not err:
             err = f"returncode {proc.returncode}"
         raise OutputError(f"ydotool type failed: {err}")
+
+
+def abort_ydotool_typing(proc: subprocess.Popen) -> None:
+    if proc.poll() is None:
+        try:
+            if proc.stdin is not None:
+                proc.stdin.close()
+        except Exception:
+            pass
+        proc.kill()
+    try:
+        proc.wait(timeout=1)
+    except Exception:
+        pass
+
+
+def type_via_ydotool(
+    text: str,
+    binary: str,
+    key_delay_ms: int,
+    focus_delay_ms: int,
+    key_hold_ms: int = 0,
+) -> None:
+    proc = start_ydotool_typing(binary, key_delay_ms, key_hold_ms)
+    try:
+        finish_ydotool_typing(proc, text, focus_delay_ms)
+    except OutputError:
+        abort_ydotool_typing(proc)
+        raise

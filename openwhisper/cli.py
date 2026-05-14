@@ -26,9 +26,11 @@ from .history import write_history
 from .llama import LlamaError, run_llama
 from .output import (
     OutputError,
+    abort_ydotool_typing,
     copy_to_clipboard,
+    finish_ydotool_typing,
     notify_clipboard_copied,
-    type_via_ydotool,
+    start_ydotool_typing,
     write_output,
 )
 from .parakeet import PARAKEET_FILES, ParakeetError, run_parakeet
@@ -237,6 +239,17 @@ def _stop_command(config: dict) -> int:
 
     backend = state.get("backend", BACKEND_WHISPER)
     exit_code = 0
+    ydotool_proc = None
+    if state.get("auto_type_enabled"):
+        try:
+            ydotool_proc = start_ydotool_typing(
+                config.get("auto_type_binary", "ydotool"),
+                int(config.get("auto_type_key_delay_ms", 0)),
+                int(config.get("auto_type_key_hold_ms", 0)),
+            )
+        except OutputError as exc:
+            print(str(exc), file=sys.stderr)
+            exit_code = 1
     try:
         try:
             validate_backend_requirements(backend, config)
@@ -294,17 +307,18 @@ def _stop_command(config: dict) -> int:
         output_path = Path(state["output_path"]) if state.get("output_path") else None
         write_output(text, output_path)
 
-        if state.get("auto_type_enabled"):
+        if ydotool_proc is not None:
             try:
-                type_via_ydotool(
+                finish_ydotool_typing(
+                    ydotool_proc,
                     text,
-                    config.get("auto_type_binary", "ydotool"),
-                    int(config.get("auto_type_key_delay_ms", 20)),
                     int(config.get("auto_type_focus_delay_ms", 0)),
                 )
             except OutputError as exc:
                 print(str(exc), file=sys.stderr)
                 exit_code = 1
+            finally:
+                ydotool_proc = None
         elif state.get("clipboard_enabled"):
             try:
                 copy_to_clipboard(text)
@@ -327,6 +341,8 @@ def _stop_command(config: dict) -> int:
             except Exception as exc:  # pragma: no cover - defensive logging
                 print(f"History write failed: {exc}", file=sys.stderr)
     finally:
+        if ydotool_proc is not None:
+            abort_ydotool_typing(ydotool_proc)
         if audio_path.exists():
             audio_path.unlink()
         clear_state()
