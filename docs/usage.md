@@ -24,6 +24,7 @@ openwhisper cancel
 - `--backend {whisper,parakeet}`: pick transcription backend (default from config; falls back to `whisper`)
 - `--no-clipboard`: disable clipboard output
 - `--no-history`: disable history output
+- `--auto-type`: type the final transcript into the focused window via `ydotool` (requires `ydotool`/`ydotoold`; the active keyboard layout governs typed characters; disables clipboard copy)
 - `--output FILE`: write output to a file path in addition to stdout
 
 ## Transcription Backends

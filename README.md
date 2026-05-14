@@ -1,6 +1,6 @@
 # OpenWhisper (Linux CLI)
 
-OpenWhisper is a Linux-only CLI dictation tool. It records audio, transcribes via `whisper-cli` or Parakeet-TDT (`sherpa-onnx`), and optionally formats output via `llama-cli`. Output is printed to stdout and copied to the clipboard.
+OpenWhisper is a Linux-only CLI dictation tool. It records audio, transcribes via `whisper-cli` or Parakeet-TDT (`sherpa-onnx`), and optionally formats output via `llama-cli`. Output is printed to stdout and either copied to the clipboard or typed directly into the focused window via `ydotool` (`--auto-type`).
 
 ## MVP Goals
 - Voice-to-text, email, and note modes
@@ -23,6 +23,7 @@ Pick a backend via `--backend {whisper,parakeet}` or `transcription_backend` in 
    - `llama-cli` ([llama.cpp](https://github.com/ggerganov/llama.cpp))
    - Audio: `pw-record` (PipeWire) or `parec` + `sox`/`ffmpeg`
    - Clipboard: `dbus-send` (via xdg-desktop-portal)
+   - For `--auto-type`: `ydotool` plus a running `ydotoold` user-service. The invoking user must be in the `input` group for `/dev/uinput` access.
    - For `whisper` backend: `whisper-cli` ([whisper.cpp](https://github.com/ggerganov/whisper.cpp))
    - For `parakeet` backend: nothing extra — `sherpa-onnx` is pulled in via the `parakeet` extra.
 

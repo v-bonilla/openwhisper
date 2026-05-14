@@ -24,7 +24,13 @@ from .constants import (
 )
 from .history import write_history
 from .llama import LlamaError, run_llama
-from .output import OutputError, copy_to_clipboard, notify_clipboard_copied, write_output
+from .output import (
+    OutputError,
+    copy_to_clipboard,
+    notify_clipboard_copied,
+    type_via_ydotool,
+    write_output,
+)
 from .parakeet import PARAKEET_FILES, ParakeetError, run_parakeet
 from .state import StateError, clear_state, load_state, save_state
 from .whisper import WhisperError, run_whisper
@@ -41,6 +47,7 @@ def _parse_args() -> argparse.Namespace:
     start_parser.add_argument("--backend", choices=sorted(SUPPORTED_BACKENDS))
     start_parser.add_argument("--no-clipboard", action="store_true")
     start_parser.add_argument("--no-history", action="store_true")
+    start_parser.add_argument("--auto-type", action="store_true")
     start_parser.add_argument("--output", type=Path)
 
     subparsers.add_parser("stop")
@@ -172,6 +179,14 @@ def _start_command(args: argparse.Namespace, config: dict) -> int:
         print(str(exc), file=sys.stderr)
         return 1
 
+    auto_type_enabled = args.auto_type or config.get("auto_type_enabled", False)
+    if auto_type_enabled:
+        try:
+            _validate_binary_path(config.get("auto_type_binary"), "auto_type_binary")
+        except ValueError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     audio_path = REPO_ROOT / "data" / "tmp" / f"recording-{timestamp}.wav"
 
@@ -181,6 +196,10 @@ def _start_command(args: argparse.Namespace, config: dict) -> int:
         print(str(exc), file=sys.stderr)
         return 1
 
+    clipboard_enabled = config.get("clipboard_enabled", True) and not args.no_clipboard
+    if auto_type_enabled:
+        clipboard_enabled = False
+
     state = {
         "audio_path": str(audio_path),
         "pids": recording.pids,
@@ -189,7 +208,8 @@ def _start_command(args: argparse.Namespace, config: dict) -> int:
         "backend": backend,
         "language": language,
         "translate": translate,
-        "clipboard_enabled": config.get("clipboard_enabled", True) and not args.no_clipboard,
+        "clipboard_enabled": clipboard_enabled,
+        "auto_type_enabled": auto_type_enabled,
         "history_enabled": config.get("history_enabled", True) and not args.no_history,
         "output_path": str(args.output) if args.output else None,
         "started_at": timestamp,
@@ -216,6 +236,7 @@ def _stop_command(config: dict) -> int:
     llama_cli_path = config.get("llama_cli_path", "llama-cli")
 
     backend = state.get("backend", BACKEND_WHISPER)
+    exit_code = 0
     try:
         try:
             validate_backend_requirements(backend, config)
@@ -273,7 +294,18 @@ def _stop_command(config: dict) -> int:
         output_path = Path(state["output_path"]) if state.get("output_path") else None
         write_output(text, output_path)
 
-        if state.get("clipboard_enabled"):
+        if state.get("auto_type_enabled"):
+            try:
+                type_via_ydotool(
+                    text,
+                    config.get("auto_type_binary", "ydotool"),
+                    int(config.get("auto_type_key_delay_ms", 20)),
+                    int(config.get("auto_type_focus_delay_ms", 0)),
+                )
+            except OutputError as exc:
+                print(str(exc), file=sys.stderr)
+                exit_code = 1
+        elif state.get("clipboard_enabled"):
             try:
                 copy_to_clipboard(text)
                 if config.get("clipboard_notify_enabled", True):
@@ -299,7 +331,7 @@ def _stop_command(config: dict) -> int:
             audio_path.unlink()
         clear_state()
 
-    return 0
+    return exit_code
 
 
 def _resolve_backend(args_backend: str | None, config: dict) -> tuple[str | None, str | None]:

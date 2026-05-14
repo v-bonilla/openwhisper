@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import subprocess
+import time
 from pathlib import Path
 from shutil import which
 
@@ -73,3 +74,23 @@ def write_output(text: str, output_path: Path | None) -> None:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text(text, encoding="utf-8")
     print(text)
+
+
+def type_via_ydotool(text: str, binary: str, key_delay_ms: int, focus_delay_ms: int) -> None:
+    if which(binary) is None:
+        raise OutputError(f"ydotool not found on PATH: {binary}")
+
+    if focus_delay_ms > 0:
+        time.sleep(focus_delay_ms / 1000)
+
+    proc = subprocess.run(
+        [binary, "type", "--file", "-", "--escape=0", "--key-delay", str(key_delay_ms)],
+        input=text.rstrip("\n"),
+        text=True,
+        capture_output=True,
+    )
+    if proc.returncode != 0:
+        err = (proc.stderr or "").strip()
+        if not err:
+            err = f"returncode {proc.returncode}"
+        raise OutputError(f"ydotool type failed: {err}")

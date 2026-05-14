@@ -24,3 +24,11 @@
 # Pronunciation training
 # pronunciation_pairs_path = "./data/pronunciation/minimal_pairs.json"
 # pronunciation_paragraphs_dir = "./data/pronunciation/paragraphs"
+
+# Auto-type (ydotool)
+# Requires `ydotool` and a running `ydotoold` user-service.
+# Enabling auto-type disables clipboard copy for that recording.
+# auto_type_enabled = false                # type transcript into focused window
+# auto_type_binary = "ydotool"             # binary name or absolute path
+# auto_type_key_delay_ms = 20              # ms between keystrokes
+# auto_type_focus_delay_ms = 0             # ms to wait before typing
