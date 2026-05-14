@@ -25,22 +25,26 @@
 # pronunciation_pairs_path = "./data/pronunciation/minimal_pairs.json"
 # pronunciation_paragraphs_dir = "./data/pronunciation/paragraphs"
 
-# Auto-type (ydotool, streaming)
+# Auto-type (ydotool)
 # Requires `ydotool` and a running `ydotoold` user-service.
-# When --auto-type is set (or auto_type_enabled = true), `start` spawns a
-# background streamer daemon that records, transcribes in overlapping
-# chunks, and types each new piece into the focused window. `stop`
-# finalizes the tail and exits. Constraints:
-#   - Requires explicit --language (or default_language below).
-#   - Incompatible with --translate and non-voice modes (full transcript
-#     required for those features).
-#   - ydotool types into whatever has focus AT THE MOMENT each chunk is
-#     ready; no focus tracking. Alt-tabbing mid-stream will splatter text
-#     into the wrong window.
+# Two modes:
+#   - Batch (default --auto-type): the full transcript is typed at `stop`
+#     after llama formatting/translation runs. Compatible with --translate
+#     and non-voice modes.
+#   - Streaming (--auto-type --stream): `start` spawns a background daemon
+#     that transcribes in overlapping chunks and types each piece into the
+#     focused window as you speak. `stop` finalizes the tail and exits.
+#     Streaming constraints:
+#       * requires explicit --language (or default_language)
+#       * incompatible with --translate and non-voice modes
+#       * ydotool types into whatever has focus AT THE MOMENT each chunk
+#         lands; no focus tracking — alt-tabbing routes text elsewhere.
 # auto_type_enabled = false                # default behavior of --auto-type
+# auto_type_stream_enabled = false         # default behavior of --stream
 # auto_type_binary = "ydotool"             # binary name or absolute path
 # auto_type_key_delay_ms = 0               # ms between keystrokes
 # auto_type_key_hold_ms = 0                # ms each key is held down
-# auto_type_chunk_seconds = 4.0            # transcription chunk size
-# auto_type_overlap_seconds = 0.8          # overlap between adjacent chunks
-# auto_type_finalize_timeout_s = 15        # max wait for daemon to drain at stop
+# auto_type_focus_delay_ms = 0             # ms to wait before batch typing
+# auto_type_chunk_seconds = 4.0            # streaming: transcription chunk size
+# auto_type_overlap_seconds = 0.8          # streaming: overlap between chunks
+# auto_type_finalize_timeout_s = 15        # streaming: max wait at stop

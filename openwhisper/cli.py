@@ -26,8 +26,11 @@ from .history import write_history
 from .llama import LlamaError, run_llama
 from .output import (
     OutputError,
+    abort_ydotool_typing,
     copy_to_clipboard,
+    finish_ydotool_typing,
     notify_clipboard_copied,
+    start_ydotool_typing,
     write_output,
 )
 from .parakeet import PARAKEET_FILES, ParakeetError, run_parakeet
@@ -48,6 +51,7 @@ def _parse_args() -> argparse.Namespace:
     start_parser.add_argument("--no-clipboard", action="store_true")
     start_parser.add_argument("--no-history", action="store_true")
     start_parser.add_argument("--auto-type", action="store_true")
+    start_parser.add_argument("--stream", action="store_true")
     start_parser.add_argument("--output", type=Path)
 
     subparsers.add_parser("stop")
@@ -180,27 +184,35 @@ def _start_command(args: argparse.Namespace, config: dict) -> int:
         return 1
 
     auto_type_enabled = args.auto_type or config.get("auto_type_enabled", False)
+    stream_enabled = args.stream or config.get("auto_type_stream_enabled", False)
+
+    if stream_enabled and not auto_type_enabled:
+        print("--stream requires --auto-type.", file=sys.stderr)
+        return 1
+
     if auto_type_enabled:
         try:
             _validate_binary_path(config.get("auto_type_binary"), "auto_type_binary")
         except ValueError as exc:
             print(str(exc), file=sys.stderr)
             return 1
+
+    if stream_enabled:
         if mode != MODE_VOICE:
             print(
-                "--auto-type requires voice mode; email/note formatting needs the full transcript.",
+                "--stream requires voice mode; email/note formatting needs the full transcript.",
                 file=sys.stderr,
             )
             return 1
         if translate:
             print(
-                "--auto-type is incompatible with --translate; translation needs the full transcript.",
+                "--stream is incompatible with --translate; translation needs the full transcript.",
                 file=sys.stderr,
             )
             return 1
         if not language:
             print(
-                "--auto-type requires an explicit --language (or default_language in config); "
+                "--stream requires an explicit --language (or default_language in config); "
                 "per-chunk auto-detect is unreliable.",
                 file=sys.stderr,
             )
@@ -214,7 +226,7 @@ def _start_command(args: argparse.Namespace, config: dict) -> int:
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     audio_path = REPO_ROOT / "data" / "tmp" / f"recording-{timestamp}.wav"
 
-    if auto_type_enabled:
+    if stream_enabled:
         try:
             streamer_info = streamer.spawn_streamer(backend, language, config)
         except Exception as exc:
@@ -248,6 +260,8 @@ def _start_command(args: argparse.Namespace, config: dict) -> int:
         return 1
 
     clipboard_enabled = config.get("clipboard_enabled", True) and not args.no_clipboard
+    if auto_type_enabled:
+        clipboard_enabled = False
 
     state = {
         "streaming": False,
@@ -259,7 +273,7 @@ def _start_command(args: argparse.Namespace, config: dict) -> int:
         "language": language,
         "translate": translate,
         "clipboard_enabled": clipboard_enabled,
-        "auto_type_enabled": False,
+        "auto_type_enabled": auto_type_enabled,
         "history_enabled": config.get("history_enabled", True) and not args.no_history,
         "output_path": str(args.output) if args.output else None,
         "started_at": timestamp,
@@ -290,6 +304,17 @@ def _stop_command(config: dict) -> int:
 
     backend = state.get("backend", BACKEND_WHISPER)
     exit_code = 0
+    ydotool_proc = None
+    if state.get("auto_type_enabled"):
+        try:
+            ydotool_proc = start_ydotool_typing(
+                config.get("auto_type_binary", "ydotool"),
+                int(config.get("auto_type_key_delay_ms", 0)),
+                int(config.get("auto_type_key_hold_ms", 0)),
+            )
+        except OutputError as exc:
+            print(str(exc), file=sys.stderr)
+            exit_code = 1
     try:
         try:
             validate_backend_requirements(backend, config)
@@ -347,7 +372,19 @@ def _stop_command(config: dict) -> int:
         output_path = Path(state["output_path"]) if state.get("output_path") else None
         write_output(text, output_path)
 
-        if state.get("clipboard_enabled"):
+        if ydotool_proc is not None:
+            try:
+                finish_ydotool_typing(
+                    ydotool_proc,
+                    text,
+                    int(config.get("auto_type_focus_delay_ms", 0)),
+                )
+            except OutputError as exc:
+                print(str(exc), file=sys.stderr)
+                exit_code = 1
+            finally:
+                ydotool_proc = None
+        elif state.get("clipboard_enabled"):
             try:
                 copy_to_clipboard(text)
                 if config.get("clipboard_notify_enabled", True):
@@ -369,6 +406,8 @@ def _stop_command(config: dict) -> int:
             except Exception as exc:  # pragma: no cover - defensive logging
                 print(f"History write failed: {exc}", file=sys.stderr)
     finally:
+        if ydotool_proc is not None:
+            abort_ydotool_typing(ydotool_proc)
         if audio_path.exists():
             audio_path.unlink()
         clear_state()
