@@ -69,11 +69,12 @@ def notify_clipboard_copied() -> None:
     subprocess.run(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
-def write_output(text: str, output_path: Path | None) -> None:
+def write_output(text: str, output_path: Path | None, verbose: bool = True) -> None:
     if output_path:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text(text, encoding="utf-8")
-    print(text)
+    if verbose:
+        print(text)
 
 
 def start_ydotool_typing(

@@ -41,6 +41,7 @@ def _start_args(**overrides):
         auto_type=overrides.get("auto_type", True),
         stream=overrides.get("stream", True),
         output=None,
+        verbose=overrides.get("verbose", False),
     )
     return ns
 

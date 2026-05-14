@@ -53,8 +53,10 @@ def _parse_args() -> argparse.Namespace:
     start_parser.add_argument("--auto-type", action="store_true")
     start_parser.add_argument("--stream", action="store_true")
     start_parser.add_argument("--output", type=Path)
+    start_parser.add_argument("-v", "--verbose", action="store_true")
 
-    subparsers.add_parser("stop")
+    stop_parser = subparsers.add_parser("stop")
+    stop_parser.add_argument("-v", "--verbose", action="store_true")
     subparsers.add_parser("cancel")
 
     drill_parser = subparsers.add_parser("drill")
@@ -247,7 +249,8 @@ def _start_command(args: argparse.Namespace, config: dict) -> int:
             "streamer_start_time": streamer_info["streamer_start_time"],
         }
         save_state(state)
-        print(f"Streaming auto-type started (pid {streamer_info['streamer_pid']}).")
+        if args.verbose:
+            print(f"Streaming auto-type started (pid {streamer_info['streamer_pid']}).")
         return 0
 
     try:
@@ -276,11 +279,12 @@ def _start_command(args: argparse.Namespace, config: dict) -> int:
         "started_at": timestamp,
     }
     save_state(state)
-    print(f"Recording started ({recording.method}).")
+    if args.verbose:
+        print(f"Recording started ({recording.method}).")
     return 0
 
 
-def _stop_command(config: dict) -> int:
+def _stop_command(args: argparse.Namespace, config: dict) -> int:
     try:
         state = load_state()
     except StateError as exc:
@@ -288,7 +292,7 @@ def _stop_command(config: dict) -> int:
         return 1
 
     if state.get("streaming"):
-        return _stop_streaming(state, config)
+        return _stop_streaming(state, config, args.verbose)
 
     audio_path = Path(state["audio_path"])
     stop_recording(state["pids"])
@@ -367,7 +371,7 @@ def _stop_command(config: dict) -> int:
                 text = transcript
 
         output_path = Path(state["output_path"]) if state.get("output_path") else None
-        write_output(text, output_path)
+        write_output(text, output_path, verbose=args.verbose)
 
         if ydotool_proc is not None:
             try:
@@ -412,7 +416,7 @@ def _stop_command(config: dict) -> int:
     return exit_code
 
 
-def _stop_streaming(state: dict, config: dict) -> int:
+def _stop_streaming(state: dict, config: dict, verbose: bool) -> int:
     pid = int(state.get("streamer_pid", 0))
     start_time = state.get("streamer_start_time")
     timeout_s = float(config.get("auto_type_finalize_timeout_s", 15.0))
@@ -420,7 +424,7 @@ def _stop_streaming(state: dict, config: dict) -> int:
 
     output_path = Path(state["output_path"]) if state.get("output_path") else None
     if transcript:
-        write_output(transcript, output_path)
+        write_output(transcript, output_path, verbose=verbose)
     else:
         print("Streamer produced no transcript.", file=sys.stderr)
 
@@ -757,7 +761,7 @@ def main() -> int:
     if args.command == "start":
         return _start_command(args, config)
     if args.command == "stop":
-        return _stop_command(config)
+        return _stop_command(args, config)
     if args.command == "cancel":
         return _cancel_command()
     if args.command == "drill":
