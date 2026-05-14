@@ -40,6 +40,7 @@ def _start_args(**overrides):
         no_history=False,
         auto_type=overrides.get("auto_type", True),
         stream=overrides.get("stream", True),
+        no_indicator=overrides.get("no_indicator", True),
         output=None,
         verbose=overrides.get("verbose", False),
     )

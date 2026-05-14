@@ -48,3 +48,13 @@
 # auto_type_chunk_seconds = 4.0            # streaming: transcription chunk size
 # auto_type_overlap_seconds = 0.8          # streaming: overlap between chunks
 # auto_type_finalize_timeout_s = 15        # streaming: max wait at stop
+
+# Floating recording indicator (GTK4 + wlr-layer-shell overlay badge)
+# Shown anchored top-center while a recording session is active.
+# Requires Wayland (WAYLAND_DISPLAY) and a compositor that honors
+# wlr-layer-shell (KWin/Plasma 6, Sway, Hyprland, etc.). Skips silently
+# on X11 or headless sessions. Override per-invocation with --no-indicator.
+# Deploy-target deps: libgtk-4-1, gir1.2-gtk-4.0, libgtk4-layer-shell0,
+# gir1.2-gtk4layershell-1.0, python3-gi.
+# indicator_enabled = true
+# indicator_text = "● REC  openwhisper"

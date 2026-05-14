@@ -7,6 +7,7 @@ import sys
 
 from .audio import AudioError, start_recording, stop_recording
 from .config import REPO_ROOT, load_config, resolve_history_dir
+from .indicator import kill_indicator, spawn_indicator
 from .constants import (
     BACKEND_PARAKEET,
     BACKEND_WHISPER,
@@ -52,6 +53,7 @@ def _parse_args() -> argparse.Namespace:
     start_parser.add_argument("--no-history", action="store_true")
     start_parser.add_argument("--auto-type", action="store_true")
     start_parser.add_argument("--stream", action="store_true")
+    start_parser.add_argument("--no-indicator", action="store_true")
     start_parser.add_argument("--output", type=Path)
     start_parser.add_argument("-v", "--verbose", action="store_true")
 
@@ -234,6 +236,9 @@ def _start_command(args: argparse.Namespace, config: dict) -> int:
         except Exception as exc:
             print(f"Failed to start streamer: {exc}", file=sys.stderr)
             return 1
+        indicator_info = (
+            None if args.no_indicator else spawn_indicator(config)
+        )
         state = {
             "streaming": True,
             "mode": mode,
@@ -247,10 +252,14 @@ def _start_command(args: argparse.Namespace, config: dict) -> int:
             "started_at": timestamp,
             "streamer_pid": streamer_info["streamer_pid"],
             "streamer_start_time": streamer_info["streamer_start_time"],
+            "indicator_pid": indicator_info["indicator_pid"] if indicator_info else None,
+            "indicator_start_time": indicator_info["indicator_start_time"] if indicator_info else None,
         }
         save_state(state)
         if args.verbose:
             print(f"Streaming auto-type started (pid {streamer_info['streamer_pid']}).")
+            if indicator_info:
+                print(f"Indicator started (pid {indicator_info['indicator_pid']}).")
         return 0
 
     try:
@@ -262,6 +271,8 @@ def _start_command(args: argparse.Namespace, config: dict) -> int:
     clipboard_enabled = config.get("clipboard_enabled", True) and not args.no_clipboard
     if auto_type_enabled:
         clipboard_enabled = False
+
+    indicator_info = None if args.no_indicator else spawn_indicator(config)
 
     state = {
         "streaming": False,
@@ -277,10 +288,14 @@ def _start_command(args: argparse.Namespace, config: dict) -> int:
         "history_enabled": config.get("history_enabled", True) and not args.no_history,
         "output_path": str(args.output) if args.output else None,
         "started_at": timestamp,
+        "indicator_pid": indicator_info["indicator_pid"] if indicator_info else None,
+        "indicator_start_time": indicator_info["indicator_start_time"] if indicator_info else None,
     }
     save_state(state)
     if args.verbose:
         print(f"Recording started ({recording.method}).")
+        if indicator_info:
+            print(f"Indicator started (pid {indicator_info['indicator_pid']}).")
     return 0
 
 
@@ -296,6 +311,7 @@ def _stop_command(args: argparse.Namespace, config: dict) -> int:
 
     audio_path = Path(state["audio_path"])
     stop_recording(state["pids"])
+    kill_indicator(state.get("indicator_pid"), state.get("indicator_start_time"))
 
     transcript = ""
     detected = None
@@ -417,6 +433,7 @@ def _stop_command(args: argparse.Namespace, config: dict) -> int:
 
 
 def _stop_streaming(state: dict, config: dict, verbose: bool) -> int:
+    kill_indicator(state.get("indicator_pid"), state.get("indicator_start_time"))
     pid = int(state.get("streamer_pid", 0))
     start_time = state.get("streamer_start_time")
     timeout_s = float(config.get("auto_type_finalize_timeout_s", 15.0))
@@ -735,6 +752,8 @@ def _cancel_command() -> int:
     except StateError as exc:
         print(str(exc), file=sys.stderr)
         return 1
+
+    kill_indicator(state.get("indicator_pid"), state.get("indicator_start_time"))
 
     if state.get("streaming"):
         pid = int(state.get("streamer_pid", 0))

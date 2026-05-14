@@ -47,6 +47,8 @@ def load_config() -> dict:
         "pronunciation_paragraphs_dir": str(
             REPO_ROOT / "data" / "pronunciation" / "paragraphs"
         ),
+        "indicator_enabled": True,
+        "indicator_text": "● REC  openwhisper",
     }
     if CONFIG_PATH.exists():
         with CONFIG_PATH.open("rb") as handle:
