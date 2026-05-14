@@ -24,7 +24,7 @@ openwhisper cancel
 - `--backend {whisper,parakeet}`: pick transcription backend (default from config; falls back to `whisper`)
 - `--no-clipboard`: disable clipboard output
 - `--no-history`: disable history output
-- `--auto-type`: type the final transcript into the focused window via `ydotool` (requires `ydotool`/`ydotoold`; the active keyboard layout governs typed characters; disables clipboard copy)
+- `--auto-type`: stream-type the transcript into the focused window via `ydotool` as you speak (requires `ydotool`/`ydotoold`; the active keyboard layout governs typed characters; disables clipboard copy). Requires `--language` (or `default_language`); incompatible with `--translate` and non-voice modes. ydotool types into whatever has focus at each chunk boundary — alt-tabbing mid-stream will route text to the wrong window. First-character latency is roughly the configured chunk size (~4 s default).
 - `--output FILE`: write output to a file path in addition to stdout
 
 ## Transcription Backends

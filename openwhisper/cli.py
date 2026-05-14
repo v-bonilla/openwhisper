@@ -26,14 +26,12 @@ from .history import write_history
 from .llama import LlamaError, run_llama
 from .output import (
     OutputError,
-    abort_ydotool_typing,
     copy_to_clipboard,
-    finish_ydotool_typing,
     notify_clipboard_copied,
-    start_ydotool_typing,
     write_output,
 )
 from .parakeet import PARAKEET_FILES, ParakeetError, run_parakeet
+from . import streamer
 from .state import StateError, clear_state, load_state, save_state
 from .whisper import WhisperError, run_whisper
 
@@ -188,9 +186,60 @@ def _start_command(args: argparse.Namespace, config: dict) -> int:
         except ValueError as exc:
             print(str(exc), file=sys.stderr)
             return 1
+        if mode != MODE_VOICE:
+            print(
+                "--auto-type requires voice mode; email/note formatting needs the full transcript.",
+                file=sys.stderr,
+            )
+            return 1
+        if translate:
+            print(
+                "--auto-type is incompatible with --translate; translation needs the full transcript.",
+                file=sys.stderr,
+            )
+            return 1
+        if not language:
+            print(
+                "--auto-type requires an explicit --language (or default_language in config); "
+                "per-chunk auto-detect is unreliable.",
+                file=sys.stderr,
+            )
+            return 1
+        try:
+            validate_backend_requirements(backend, config)
+        except ValueError as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
 
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     audio_path = REPO_ROOT / "data" / "tmp" / f"recording-{timestamp}.wav"
+
+    if auto_type_enabled:
+        try:
+            streamer_info = streamer.spawn_streamer(backend, language, config)
+        except Exception as exc:
+            print(f"Failed to start streamer: {exc}", file=sys.stderr)
+            return 1
+        state = {
+            "streaming": True,
+            "mode": mode,
+            "backend": backend,
+            "language": language,
+            "translate": None,
+            "clipboard_enabled": False,
+            "auto_type_enabled": True,
+            "history_enabled": config.get("history_enabled", True) and not args.no_history,
+            "output_path": str(args.output) if args.output else None,
+            "started_at": timestamp,
+            "streamer_pid": streamer_info["streamer_pid"],
+            "streamer_start_time": streamer_info["streamer_start_time"],
+            "fifo_path": streamer_info["fifo_path"],
+            "result_path": streamer_info["result_path"],
+            "log_path": streamer_info["log_path"],
+        }
+        save_state(state)
+        print(f"Streaming auto-type started (pid {streamer_info['streamer_pid']}).")
+        return 0
 
     try:
         recording = start_recording(audio_path, config.get("audio_device"))
@@ -199,10 +248,9 @@ def _start_command(args: argparse.Namespace, config: dict) -> int:
         return 1
 
     clipboard_enabled = config.get("clipboard_enabled", True) and not args.no_clipboard
-    if auto_type_enabled:
-        clipboard_enabled = False
 
     state = {
+        "streaming": False,
         "audio_path": str(audio_path),
         "pids": recording.pids,
         "method": recording.method,
@@ -211,7 +259,7 @@ def _start_command(args: argparse.Namespace, config: dict) -> int:
         "language": language,
         "translate": translate,
         "clipboard_enabled": clipboard_enabled,
-        "auto_type_enabled": auto_type_enabled,
+        "auto_type_enabled": False,
         "history_enabled": config.get("history_enabled", True) and not args.no_history,
         "output_path": str(args.output) if args.output else None,
         "started_at": timestamp,
@@ -228,6 +276,9 @@ def _stop_command(config: dict) -> int:
         print(str(exc), file=sys.stderr)
         return 1
 
+    if state.get("streaming"):
+        return _stop_streaming(state, config)
+
     audio_path = Path(state["audio_path"])
     stop_recording(state["pids"])
 
@@ -239,17 +290,6 @@ def _stop_command(config: dict) -> int:
 
     backend = state.get("backend", BACKEND_WHISPER)
     exit_code = 0
-    ydotool_proc = None
-    if state.get("auto_type_enabled"):
-        try:
-            ydotool_proc = start_ydotool_typing(
-                config.get("auto_type_binary", "ydotool"),
-                int(config.get("auto_type_key_delay_ms", 0)),
-                int(config.get("auto_type_key_hold_ms", 0)),
-            )
-        except OutputError as exc:
-            print(str(exc), file=sys.stderr)
-            exit_code = 1
     try:
         try:
             validate_backend_requirements(backend, config)
@@ -307,19 +347,7 @@ def _stop_command(config: dict) -> int:
         output_path = Path(state["output_path"]) if state.get("output_path") else None
         write_output(text, output_path)
 
-        if ydotool_proc is not None:
-            try:
-                finish_ydotool_typing(
-                    ydotool_proc,
-                    text,
-                    int(config.get("auto_type_focus_delay_ms", 0)),
-                )
-            except OutputError as exc:
-                print(str(exc), file=sys.stderr)
-                exit_code = 1
-            finally:
-                ydotool_proc = None
-        elif state.get("clipboard_enabled"):
+        if state.get("clipboard_enabled"):
             try:
                 copy_to_clipboard(text)
                 if config.get("clipboard_notify_enabled", True):
@@ -341,13 +369,42 @@ def _stop_command(config: dict) -> int:
             except Exception as exc:  # pragma: no cover - defensive logging
                 print(f"History write failed: {exc}", file=sys.stderr)
     finally:
-        if ydotool_proc is not None:
-            abort_ydotool_typing(ydotool_proc)
         if audio_path.exists():
             audio_path.unlink()
         clear_state()
 
     return exit_code
+
+
+def _stop_streaming(state: dict, config: dict) -> int:
+    pid = int(state.get("streamer_pid", 0))
+    start_time = state.get("streamer_start_time")
+    timeout_s = float(config.get("auto_type_finalize_timeout_s", 15.0))
+    transcript = streamer.signal_finalize(pid, start_time, timeout_s=timeout_s)
+
+    output_path = Path(state["output_path"]) if state.get("output_path") else None
+    if transcript:
+        write_output(transcript, output_path)
+    else:
+        print("Streamer produced no transcript.", file=sys.stderr)
+
+    if transcript and state.get("history_enabled"):
+        history_dir = resolve_history_dir(config)
+        metadata = {
+            "mode": state["mode"],
+            "backend": state.get("backend"),
+            "language": state.get("language"),
+            "translate": None,
+            "streaming": True,
+        }
+        try:
+            write_history(history_dir, transcript, transcript, metadata)
+        except Exception as exc:  # pragma: no cover - defensive logging
+            print(f"History write failed: {exc}", file=sys.stderr)
+
+    streamer.cleanup_artifacts()
+    clear_state()
+    return 0 if transcript else 1
 
 
 def _resolve_backend(args_backend: str | None, config: dict) -> tuple[str | None, str | None]:
@@ -638,6 +695,15 @@ def _cancel_command() -> int:
     except StateError as exc:
         print(str(exc), file=sys.stderr)
         return 1
+
+    if state.get("streaming"):
+        pid = int(state.get("streamer_pid", 0))
+        start_time = state.get("streamer_start_time")
+        streamer.signal_cancel(pid, start_time)
+        streamer.cleanup_artifacts()
+        clear_state()
+        print("Streaming cancelled.")
+        return 0
 
     stop_recording(state["pids"])
     audio_path = Path(state["audio_path"])

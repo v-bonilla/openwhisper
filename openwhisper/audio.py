@@ -118,6 +118,49 @@ def start_recording(path: Path, device: str | None) -> RecordingProcess:
     raise AudioError("Missing audio capture tools: pw-record or parec.")
 
 
+def start_raw_pcm_capture(device: str | None) -> subprocess.Popen:
+    """Spawn an audio capture producing raw s16le 16kHz mono on stdout.
+
+    Returns the Popen handle. Caller owns lifecycle and is responsible for
+    terminating the process group (use ``os.killpg`` with ``proc.pid``).
+    """
+    _ensure_audio_dir()
+    if which("pw-record"):
+        cmd = [
+            "pw-record",
+            "--rate", "16000",
+            "--channels", "1",
+            "--format", "s16",
+            "--raw",
+            "-",
+        ]
+        if device:
+            cmd.extend(["--target", device])
+        return subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+
+    if which("parec"):
+        cmd = [
+            "parec",
+            "--rate=16000",
+            "--channels=1",
+            "--format=s16le",
+            "--raw",
+        ]
+        return subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+
+    raise AudioError("Missing audio capture tools: pw-record or parec.")
+
+
 def stop_recording(pids: list[int]) -> None:
     for pid in pids:
         try:

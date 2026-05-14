@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from pathlib import Path
 import json
+import os
 
 from .config import REPO_ROOT
 
@@ -26,8 +26,10 @@ def load_state() -> dict:
 
 def save_state(state: dict) -> None:
     ensure_state_dir()
-    with STATE_PATH.open("w", encoding="utf-8") as handle:
+    tmp = STATE_PATH.with_suffix(".tmp")
+    with tmp.open("w", encoding="utf-8") as handle:
         json.dump(state, handle, indent=2, sort_keys=True)
+    os.replace(tmp, STATE_PATH)
 
 
 def clear_state() -> None:
