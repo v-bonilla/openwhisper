@@ -27,11 +27,11 @@ CSS = b"""
 .openwhisper-indicator {
     background: rgba(20, 20, 20, 0.82);
     color: #ffffff;
-    border-radius: 14px;
-    padding: 10px 22px;
-    font-size: 22px;
+    border-radius: 42px;
+    padding: 30px 66px;
+    font-size: 66px;
     font-weight: 600;
-    letter-spacing: 0.5px;
+    letter-spacing: 1.5px;
 }
 .openwhisper-indicator .dot {
     color: #ff3b30;
@@ -98,7 +98,7 @@ def main() -> int:
         Gtk4LayerShell.set_keyboard_mode(win, Gtk4LayerShell.KeyboardMode.NONE)
         Gtk4LayerShell.set_namespace(win, "openwhisper-indicator")
 
-        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=30)
         box.add_css_class("openwhisper-indicator")
 
         if dot:
