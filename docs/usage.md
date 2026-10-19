@@ -45,3 +45,8 @@ When history is enabled, outputs are stored under `./data/history/YYYYMMDD-HHMMS
 - `transcript.txt`
 - `output.txt`
 - `metadata.json`
+
+## Recordings
+Set `recordings_enabled = true` to keep each dictation's audio as `recording-YYYYMMDD-HHMMSS.wav` in `recordings_dir` (default `./data/recordings`). If that name is taken, a `-1`, `-2`, ... suffix is added. When `start` creates the directory itself it gets mode `0700`; an existing directory keeps its permissions, and missing parent directories get the default mode. Both batch and `--stream` sessions are saved. A failed transcription keeps its audio, and `cancel` deletes it. When history is enabled, `metadata.json` records the WAV under `audio_path`.
+
+Audio takes about 1.9 MB per minute, and there is no automatic pruning. A slow or network `recordings_dir` can drop samples, so keep it on a local disk.

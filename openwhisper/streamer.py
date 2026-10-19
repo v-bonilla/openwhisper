@@ -87,6 +87,7 @@ def spawn_streamer(
     backend: str,
     language: str,
     config: dict,
+    recording_path: Optional[Path] = None,
 ) -> dict:
     """Double-fork a detached streamer daemon. Return the streamer metadata
     to merge into the recording state file.
@@ -119,7 +120,7 @@ def spawn_streamer(
         os._exit(0)
 
     try:
-        _daemon_main(backend, language, dict(config))
+        _daemon_main(backend, language, dict(config), recording_path)
     except SystemExit:
         raise
     except BaseException as exc:  # pragma: no cover - last-resort log
@@ -132,7 +133,12 @@ def spawn_streamer(
     os._exit(0)
 
 
-def _daemon_main(backend: str, language: str, config: dict) -> None:
+def _daemon_main(
+    backend: str,
+    language: str,
+    config: dict,
+    recording_path: Optional[Path] = None,
+) -> None:
     os.chdir("/")
     devnull = os.open(os.devnull, os.O_RDWR)
     logf = os.open(str(log_path()), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
@@ -188,6 +194,17 @@ def _daemon_main(backend: str, language: str, config: dict) -> None:
         _terminate_proc(audio_proc)
         return
 
+    recording = None
+    if recording_path is not None:
+        try:
+            recording = wave.open(str(recording_path), "wb")
+            recording.setnchannels(1)
+            recording.setsampwidth(BYTES_PER_SAMPLE)
+            recording.setframerate(SAMPLE_RATE)
+        except Exception as exc:
+            log(f"recording open failed: {exc}")
+            recording = None
+
     fifo_fd = os.open(str(fifo_path()), os.O_RDONLY | os.O_NONBLOCK)
 
     ready_payload = {
@@ -229,6 +246,7 @@ def _daemon_main(backend: str, language: str, config: dict) -> None:
                         pass
                 else:
                     pcm.extend(data)
+                    recording = _record_frames(recording, data, log)
             elif tag == "fifo":
                 try:
                     data = os.read(fifo_fd, 4096)
@@ -266,6 +284,7 @@ def _daemon_main(backend: str, language: str, config: dict) -> None:
             log("cancel: aborting")
             _terminate_proc(audio_proc)
             _shutdown_ydotool(ydotool_proc, drain=False, timeout=0, subprocess=subprocess)
+            _close_recording(recording, log)
             break
 
         if cmd == CMD_FINALIZE or audio_eof:
@@ -278,8 +297,10 @@ def _daemon_main(backend: str, language: str, config: dict) -> None:
                         if not data:
                             break
                         pcm.extend(data)
+                        recording = _record_frames(recording, data, log)
                 except Exception:
                     pass
+            _close_recording(recording, log)
             tail = bytes(pcm[chunk_start:])
             if len(tail) >= int(MIN_TAIL_SECONDS * BYTES_PER_SECOND):
                 try:
@@ -371,6 +392,27 @@ def _shutdown_ydotool(proc, *, drain: bool, timeout: float, subprocess, log=None
         if log:
             log("ydotool wait timed out; killing")
         proc.kill()
+
+
+def _record_frames(recording, data: bytes, log):
+    if recording is None:
+        return None
+    try:
+        recording.writeframes(data)
+        return recording
+    except Exception as exc:
+        log(f"recording write failed, disabling recording: {exc}")
+        _close_recording(recording, log)
+        return None
+
+
+def _close_recording(recording, log) -> None:
+    if recording is None:
+        return
+    try:
+        recording.close()
+    except Exception as exc:
+        log(f"recording close failed: {exc}")
 
 
 def _write_wav(path: Path, pcm: bytes) -> None:

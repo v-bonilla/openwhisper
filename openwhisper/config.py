@@ -39,6 +39,8 @@ def load_config() -> dict:
         "auto_type_focus_delay_ms": 0,
         "history_enabled": True,
         "history_dir": str(REPO_ROOT / "data" / "history"),
+        "recordings_enabled": False,
+        "recordings_dir": str(REPO_ROOT / "data" / "recordings"),
         "audio_device": None,
         "translation_target": None,
         "pronunciation_pairs_path": str(
@@ -57,8 +59,16 @@ def load_config() -> dict:
     return config
 
 
+def _resolve_repo_path(value: str | None) -> Path:
+    path = Path(value or "")
+    if not path.is_absolute():
+        path = (REPO_ROOT / path).resolve()
+    return path
+
+
 def resolve_history_dir(config: dict) -> Path:
-    history_dir = Path(config.get("history_dir") or "")
-    if not history_dir.is_absolute():
-        history_dir = (REPO_ROOT / history_dir).resolve()
-    return history_dir
+    return _resolve_repo_path(config.get("history_dir"))
+
+
+def resolve_recordings_dir(config: dict) -> Path:
+    return _resolve_repo_path(config.get("recordings_dir"))

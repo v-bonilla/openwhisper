@@ -11,6 +11,7 @@ OpenWhisper is a Linux-only CLI dictation tool. It records audio, transcribes vi
 ## Key Paths
 - Config: `config/openwhisper.toml`
 - History: `data/history/`
+- Kept recordings (`recordings_enabled`): `data/recordings/`
 - Temp audio/state: `data/tmp/`
 - Docs: `docs/usage.md`, `docs/mvp-validation.md`
 

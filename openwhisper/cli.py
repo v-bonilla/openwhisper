@@ -6,7 +6,7 @@ from pathlib import Path
 import sys
 
 from .audio import AudioError, start_recording, stop_recording
-from .config import REPO_ROOT, load_config, resolve_history_dir
+from .config import REPO_ROOT, load_config, resolve_history_dir, resolve_recordings_dir
 from .indicator import kill_indicator, spawn_indicator
 from .constants import (
     BACKEND_PARAKEET,
@@ -228,13 +228,30 @@ def _start_command(args: argparse.Namespace, config: dict) -> int:
             return 1
 
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-    audio_path = REPO_ROOT / "data" / "tmp" / f"recording-{timestamp}.wav"
+    save_recording = bool(config.get("recordings_enabled", False))
+    if save_recording:
+        recordings_dir = resolve_recordings_dir(config)
+        recordings_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+        audio_path = recordings_dir / f"recording-{timestamp}.wav"
+        suffix = 1
+        while audio_path.exists():
+            audio_path = recordings_dir / f"recording-{timestamp}-{suffix}.wav"
+            suffix += 1
+    else:
+        audio_path = REPO_ROOT / "data" / "tmp" / f"recording-{timestamp}.wav"
 
     if stream_enabled:
         try:
-            streamer_info = streamer.spawn_streamer(backend, language, config)
+            streamer_info = streamer.spawn_streamer(
+                backend,
+                language,
+                config,
+                recording_path=audio_path if save_recording else None,
+            )
         except Exception as exc:
             print(f"Failed to start streamer: {exc}", file=sys.stderr)
+            if save_recording:
+                audio_path.unlink(missing_ok=True)
             return 1
         indicator_info = (
             None if args.no_indicator else spawn_indicator(config)
@@ -250,6 +267,8 @@ def _start_command(args: argparse.Namespace, config: dict) -> int:
             "history_enabled": config.get("history_enabled", True) and not args.no_history,
             "output_path": str(args.output) if args.output else None,
             "started_at": timestamp,
+            "audio_path": str(audio_path) if save_recording else None,
+            "save_recording": save_recording,
             "streamer_pid": streamer_info["streamer_pid"],
             "streamer_start_time": streamer_info["streamer_start_time"],
             "indicator_pid": indicator_info["indicator_pid"] if indicator_info else None,
@@ -266,6 +285,7 @@ def _start_command(args: argparse.Namespace, config: dict) -> int:
         recording = start_recording(audio_path, config.get("audio_device"))
     except AudioError as exc:
         print(str(exc), file=sys.stderr)
+        audio_path.unlink(missing_ok=True)
         return 1
 
     clipboard_enabled = config.get("clipboard_enabled", True) and not args.no_clipboard
@@ -288,6 +308,7 @@ def _start_command(args: argparse.Namespace, config: dict) -> int:
         "history_enabled": config.get("history_enabled", True) and not args.no_history,
         "output_path": str(args.output) if args.output else None,
         "started_at": timestamp,
+        "save_recording": save_recording,
         "indicator_pid": indicator_info["indicator_pid"] if indicator_info else None,
         "indicator_start_time": indicator_info["indicator_start_time"] if indicator_info else None,
     }
@@ -416,8 +437,9 @@ def _stop_command(args: argparse.Namespace, config: dict) -> int:
                 "backend": backend,
                 "language": state.get("language") or detected,
                 "translate": translate_target,
-                "audio_path": str(audio_path),
             }
+            if state.get("save_recording") and audio_path.exists():
+                metadata["audio_path"] = str(audio_path)
             try:
                 write_history(history_dir, transcript, text, metadata)
             except Exception as exc:  # pragma: no cover - defensive logging
@@ -425,7 +447,10 @@ def _stop_command(args: argparse.Namespace, config: dict) -> int:
     finally:
         if ydotool_proc is not None:
             abort_ydotool_typing(ydotool_proc)
-        if audio_path.exists():
+        if state.get("save_recording"):
+            if args.verbose and audio_path.exists():
+                print(f"Recording saved: {audio_path}")
+        elif audio_path.exists():
             audio_path.unlink()
         clear_state()
 
@@ -454,6 +479,9 @@ def _stop_streaming(state: dict, config: dict, verbose: bool) -> int:
             "translate": None,
             "streaming": True,
         }
+        audio_path = state.get("audio_path")
+        if state.get("save_recording") and audio_path and Path(audio_path).exists():
+            metadata["audio_path"] = audio_path
         try:
             write_history(history_dir, transcript, transcript, metadata)
         except Exception as exc:  # pragma: no cover - defensive logging
@@ -759,6 +787,8 @@ def _cancel_command() -> int:
         pid = int(state.get("streamer_pid", 0))
         start_time = state.get("streamer_start_time")
         streamer.signal_cancel(pid, start_time)
+        if state.get("audio_path"):
+            Path(state["audio_path"]).unlink(missing_ok=True)
         streamer.cleanup_artifacts()
         clear_state()
         print("Streaming cancelled.")

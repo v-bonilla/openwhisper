@@ -2,3 +2,4 @@ config/openwhisper.toml
 *.egg-info
 __pycache__
 data/history
+data/recordings

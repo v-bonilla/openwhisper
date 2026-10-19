@@ -87,7 +87,7 @@ def _parec_ffmpeg_commands(path: Path) -> tuple[list[str], list[str]]:
 
 
 def start_recording(path: Path, device: str | None) -> RecordingProcess:
-    _ensure_audio_dir()
+    path.parent.mkdir(parents=True, exist_ok=True)
     if which("pw-record"):
         cmd = _pw_record_command(path, device)
         proc = subprocess.Popen(cmd, start_new_session=True)
